@@ -1,0 +1,155 @@
+/* The original Debate Planner's Vuetify layout, recreated with local CSS.
+   No online assets, server or build step are required. */
+:root {
+  color-scheme: light;
+  --background: #fff;
+  --surface: #fff;
+  --text: rgba(0, 0, 0, .87);
+  --subtle: rgba(0, 0, 0, .60);
+  --border: rgba(0, 0, 0, .12);
+  --line: rgba(0, 0, 0, .12);
+  --field: #f5f5f5;
+  --hover: rgba(0, 0, 0, .04);
+  --chip: #e0e0e0;
+  --green: #3cdb31;
+  --green-text: #162314;
+  --focus: #1867c0;
+  --shadow: 0 1px 2px rgba(0,0,0,.12), 0 2px 6px 2px rgba(0,0,0,.08);
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #121212;
+  --surface: #212121;
+  --text: rgba(255, 255, 255, .87);
+  --subtle: rgba(255, 255, 255, .7);
+  --border: rgba(255, 255, 255, .18);
+  --line: rgba(255, 255, 255, .16);
+  --field: #303030;
+  --hover: rgba(255, 255, 255, .08);
+  --chip: #474747;
+  --green: #1f731f;
+  --green-text: #f5fff5;
+  --focus: #a0c9ff;
+  --shadow: 0 1px 2px rgba(0,0,0,.35),0 2px 6px 2px rgba(0,0,0,.18);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body { font-family: Roboto, 'Segoe UI', Arial, sans-serif; font-size: 14px; color: var(--text); background: var(--background); }
+button, input, select { font-family: inherit; }
+button, select { cursor: pointer; }
+button { color: inherit; }
+button:disabled { opacity: .36; cursor: default; }
+:where(button, input, select, a, .member):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.mdi-icon { flex: none; vertical-align: middle; pointer-events: none; }
+.app-bar { width: 100%; height: 64px; position: relative; z-index: 2; background: var(--surface); box-shadow: 0 2px 4px rgba(0,0,0,.07); }
+.nav { display: flex; justify-content: space-between; align-items: center; min-height: 64px; padding: 0 8px 0 16px; }
+.nav h1 { font-size: 20px; font-weight: 500; line-height: 1.5; padding-left: 4px; margin: 0; letter-spacing: .015em; }
+.toolbar { display: flex; align-items: center; gap: 0; }
+.top-icon { border: 0; display: grid; place-items: center; height: 48px; width: 48px; padding: 0; border-radius: 50%; background: none; text-decoration: none; color: var(--text); }
+.top-icon:hover { background: var(--hover); }
+.language-wrap { position: relative; height: 48px; }
+.language-wrap select { position: absolute; inset: 0; width: 48px; height: 48px; opacity: 0; border: 0; font-size: 16px; }
+.content { width: 100%; padding: 16px 16px 40px; margin: 0 auto; }
+.room-row { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+.room-settings { flex: 0 0 215px; width: 215px; display: flex; flex-direction: column; gap: 12px; height: fit-content; margin-bottom: 10px; }
+.material-field { display: block; width: 100%; height: 44px; position: relative; border-radius: 4px 4px 0 0; border-bottom: 1px solid var(--subtle); background: var(--field); color: var(--text); overflow: hidden; }
+.material-field:focus-within { border-bottom: 2px solid var(--focus); }
+.material-field input, .material-field select { color: var(--text); background: none; border: 0; padding: 13px 34px 6px 12px; width: 100%; height: 100%; line-height: 1.3; font-size: 15px; border-radius: 0; outline: none; }
+.material-field input::placeholder { color: var(--subtle); opacity: 1; }
+.material-field span { position: absolute; top: 3px; left: 12px; font-size: 12px; line-height: 1.3; color: var(--subtle); pointer-events: none; }
+.material-field select { padding-top: 18px; appearance: none; }
+.material-field > svg { position: absolute; top: 14px; right: 9px; pointer-events: none; opacity: .7; }
+.material-field.room-input input { padding-top: 6px; }
+.room-setting-actions { display: flex; align-items: center; gap: 0; width: fit-content; border-radius: 4px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.12); background: #eee; }
+:root[data-theme="dark"] .room-setting-actions { background: #373737; }
+.icon-btn { flex: 0 0 auto; display: inline-grid; place-items: center; height: 36px; width: 36px; min-width: 36px; padding: 0; border: 0; border-radius: 4px; background: transparent; }
+.icon-btn:hover:not(:disabled) { background: var(--hover); }
+.room-setting-actions .icon-btn { border-radius: 0; width: 44px; height: 38px; }
+.room-setting-actions .icon-btn + .icon-btn { border-left: 1px solid var(--line); }
+.board { flex: 1; min-width: 0; width: 100%; height: fit-content; background: var(--surface); border-radius: 20px; box-shadow: var(--shadow); padding: 10px; overflow-x: auto; }
+.board .slots { width: 100%; display: grid; grid-template-columns: repeat(var(--columns), minmax(0, 1fr)); }
+.board .slot { min-width: 160px; padding: 0 5px 6px; }
+.board:not(.global-board) .slots:has(.slot:nth-child(6)) .slot { min-width: 165px; }
+.board .slot-head { min-height: 42px; display: flex; align-items: flex-start; gap: 7px; flex-wrap: wrap; padding: 0 0 5px; }
+.slot h2 { font-size: 24px; font-weight: 500; line-height: 1.3; margin: 0 0 0 5px; white-space: normal; overflow-wrap: normal; }
+.slot-controls { display: inline-flex; gap: 5px; flex-wrap: wrap; align-items: center; margin: 0 0 0 5px; }
+.slot-controls .icon-btn.green-btn { width: 36px; height: 36px; border-radius: 50%; background: var(--green); color: var(--green-text); }
+.slot-controls .icon-btn.green-btn:hover { filter: brightness(.94); }
+.slot-divider { height: 1px; width: 100%; background: var(--line); margin-bottom: 5px; }
+.members { min-height: 80px; display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding-top: 1px; }
+.global-board .members { flex-direction: row; flex-wrap: wrap; align-content: flex-start; }
+.party { width: fit-content; max-width: 100%; min-height: 34px; display: flex; flex-direction: column; gap: 0; margin: 2px 2px 2px 0; padding: 0; border-radius: 19px; border: 1px solid transparent; }
+.party.group { padding: 3px; border: 2px solid var(--border); background: var(--surface); box-shadow: 0 2px 5px #0002; }
+.party.merge-target { border-color: var(--focus); background: var(--hover); }
+.member { user-select: none; -webkit-user-select: none; display: inline-flex; align-items: center; justify-content: space-between; gap: 4px; min-height: 32px; max-width: 100%; border-radius: 16px; background: var(--chip); color: var(--text); font-size: 14px; font-weight: 400; line-height: 20px; padding: 4px 4px 4px 12px; cursor: grab; white-space: nowrap; }
+.member:active { cursor: grabbing; }
+.member.new { background: var(--green); color: var(--green-text); }
+.member.selected { outline: 2px solid var(--focus); outline-offset: 1px; }
+.member.dragging { opacity: .35; }
+.party.group .member { width: 100%; border-radius: 17px; }
+.member-name { min-width: 0; text-overflow: ellipsis; overflow: hidden; }
+.member button { display: inline-grid; place-items: center; background: none; border: 0; border-radius: 50%; padding: 0; height: 21px; width: 21px; min-width: 21px; color: inherit; opacity: .7; }
+.member button:hover { background: var(--hover); opacity: 1; }
+.new-member { background: var(--chip); border-radius: 18px; width: fit-content; max-width: 100%; height: 34px; margin: 2px 2px 2px 0; padding: 2px 5px; display: inline-flex; align-items: center; gap: 4px; }
+.new-member.new { background: var(--green); color: var(--green-text); }
+.new-member input[type="text"] { min-width: 58px; width: 88px; max-width: 145px; padding: 4px 5px; height: 26px; border-radius: 7px; border: 0; outline-offset: 0; background: rgba(255, 255, 255, .3); color: inherit; font-size: 14px; }
+.new-member input[type="text"]::placeholder { color: inherit; opacity: .65; }
+.new-member .experience-toggle { width: 26px; height: 26px; display: inline-grid; place-items: center; position: relative; border-radius: 50%; cursor: pointer; background: var(--green); color: var(--green-text); }
+.new-member.new .experience-toggle { background: transparent; color: inherit; }
+.experience-toggle input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.form-icon { pointer-events: none; display: grid; place-items: center; }
+.form-add { border: 0; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: transparent; color: inherit; padding: 0; }
+.form-add:hover { background: var(--hover); }
+.place-btn { font-size: 11px; border: 0; border-radius: 7px; background: var(--hover); color: var(--text); padding: 7px 9px; }
+.place-btn:hover { outline: 1px solid var(--focus); }
+.selected-hint { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px; padding: 6px 12px; font-size: 13px; background: var(--field); border-radius: 6px; }
+.selected-hint button { border: none; padding: 5px 8px; border-radius: 5px; background: var(--chip); }
+.slot.over .slot-divider { background: var(--focus); height: 2px; }
+.slot.over .members { background: var(--hover); border-radius: 5px; }
+@media (max-width: 960px) {
+  .room-settings { flex: 0 0 180px; width: 180px; }
+  .board .slot { min-width: 170px; }
+  .board .slots { width: max-content; min-width: 100%; grid-template-columns: repeat(var(--columns), minmax(170px,1fr)); }
+  .global-board .slots { grid-template-columns: repeat(2, minmax(230px, 1fr)); }
+}
+@media (max-width: 690px) {
+  .app-bar, .nav { height: 56px; min-height: 56px; }
+  .content { padding: 12px 10px 30px; }
+  .room-row { flex-direction: column; gap: 8px; margin-bottom: 14px; }
+  .room-settings { width: 100%; flex: 0 0 auto; display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; margin-bottom: 0; }
+  .material-field { flex: 1 1 145px; width: auto; }
+  .room-setting-actions { flex: 0 0 auto; align-self: center; }
+  .board { width: 100%; padding: 10px 8px; }
+  .slot h2 { font-size: 20px; }
+  .nav { padding-left: 10px; padding-right: 2px; }
+  .nav h1 { font-size: 18px; }
+  .top-icon, .language-wrap, .language-wrap select { height: 42px; width: 42px; }
+}
+
+/* Explicit foreground colours for dark mode. Some controls and inherited SVG
+   colours previously remained black against the dark page background. */
+:root[data-theme="dark"] body,
+:root[data-theme="dark"] h1,
+:root[data-theme="dark"] h2,
+:root[data-theme="dark"] .board,
+:root[data-theme="dark"] .slot,
+:root[data-theme="dark"] .room-settings,
+:root[data-theme="dark"] .icon-btn,
+:root[data-theme="dark"] .top-icon,
+:root[data-theme="dark"] .selected-hint,
+:root[data-theme="dark"] .selected-hint button,
+:root[data-theme="dark"] .material-field input,
+:root[data-theme="dark"] .material-field select,
+:root[data-theme="dark"] .material-field option,
+:root[data-theme="dark"] .new-member input,
+:root[data-theme="dark"] .place-btn {
+  color: var(--text);
+}
+:root[data-theme="dark"] .material-field option { background: var(--field); }
+:root[data-theme="dark"] .material-field input::placeholder { color: var(--subtle); }
+:root[data-theme="dark"] .member:not(.new) { color: var(--text); }
+:root[data-theme="dark"] .member.new,
+:root[data-theme="dark"] .new-member.new,
+:root[data-theme="dark"] .green-btn,
+:root[data-theme="dark"] .experience-toggle { color: var(--green-text); }
+.distribution-notice { padding: 8px 12px; margin-bottom: 10px; background: var(--field); border-left: 3px solid var(--focus); border-radius: 4px; color: var(--text); font-size: 13px; line-height: 1.5; }
