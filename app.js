@@ -39,7 +39,8 @@
       groupsPrevent: 'Teams und Jury können mit den bestehenden Gruppen nicht vollständig besetzt werden.',
       noComplete: 'Keine vollständige Debatte möglich. Noch niemand automatisch zugeteilt.',
       completion: 'Automatisch eingeteilt: {n} Raum/Räume.',
-      partial: 'Raum {room}: {reason}'
+      partial: 'Raum {room}: {reason}',
+      overfilled: 'Raum {room}: {slot} ist überfüllt ({current} statt höchstens {maximum}). Bitte die manuelle Zuweisung korrigieren.'
     },
     en: {
       title: 'Debate Planner', subtitle: 'No installation · Offline',
@@ -62,7 +63,8 @@
       groupsPrevent: 'Teams and jury cannot be filled completely with these participant groups.',
       noComplete: 'No complete debate is possible. No one was automatically assigned.',
       completion: 'Automatically allocated: {n} room(s).',
-      partial: 'Room {room}: {reason}'
+      partial: 'Room {room}: {reason}',
+      overfilled: 'Room {room}: {slot} is overfilled ({current}; maximum {maximum}). Please adjust manual assignments.'
     }
   };
 
@@ -348,8 +350,12 @@
   function findCompleteRoomAllocation(room, candidates, globalRate, exact = false) {
     const teams = teamSlots(room);
     const slots = [...teams, 'jury'];
-    const deficits = slots.map(slot => Math.max(0,
-      (slot === 'jury' ? Math.max(1, room.juryCount) : seatsPerTeam(room)) - count(room.id, slot)));
+    const capacities = slots.map(slot => slot === 'jury' ? Math.max(1, room.juryCount) : seatsPerTeam(room));
+    // A manually overfilled slot must never count as a completed debate.
+    if (slots.some((slot, index) => count(room.id, slot) > capacities[index])) {
+      return { complete: false, overfilled: true, picks: [], needed: 0, available: 0 };
+    }
+    const deficits = slots.map((slot, index) => capacities[index] - count(room.id, slot));
     const needed = deficits.reduce((sum, n) => sum + n, 0);
     const available = candidates.reduce((sum, item) => sum + item.size, 0);
     if (!needed) return { complete: true, picks: [], needed, available, preference: 0, penalty: 0 };
@@ -451,9 +457,117 @@
       (fixedExperienced + expPool - expectedJuryExp) / eligibleSpeakers)) : 0;
   }
 
+  // Search all target rooms *together* when independent room-by-room planning
+  // cannot fill them. This prevents scarce groups from being consumed by an
+  // earlier room although a full multi-room seating exists. The search retains
+  // manual assignments and only moves candidates from their room or the global
+  // pool. Its work is bounded to keep the browser responsive on large events.
+  function findJointRoomAllocation(roomList, globalRate) {
+    const slots = roomList.flatMap(room => [
+      'jury', ...teamSlots(room)
+    ].map(slot => ({
+      room, slot,
+      need: (slot === 'jury' ? Math.max(1, room.juryCount) : seatsPerTeam(room)) - count(room.id, slot)
+    })).filter(role => role.need > 0));
+    if (!slots.length) return null;
+
+    const candidatesByName = new Map();
+    for (const room of roomList) {
+      for (const item of candidatesFor(room, true)) {
+        if (!candidatesByName.has(item.name)) candidatesByName.set(item.name, item);
+      }
+    }
+    const candidates = shuffle([...candidatesByName.values()]);
+    const required = slots.reduce((n, role) => n + role.need, 0);
+    if (candidates.reduce((n, item) => n + item.size, 0) < required) return null;
+
+    const options = slots.map(role => candidates.filter(item =>
+      (item.sourceRoom === rootId || item.sourceRoom === role.room.id) && item.size <= role.need
+    ).sort((a, b) => role.slot === 'jury'
+      ? Number(b.possibleJury) - Number(a.possibleJury) || b.size - a.size
+      : b.size - a.size));
+    const used = new Set(), chosen = [];
+    let best = null, work = 0, found = 0;
+    // These limits apply only to the fallback search; normal distribution uses
+    // the fast room solver. No changes are committed until a full plan exists.
+    const maxWork = 120000, maxPlans = 36;
+    function feasibleFrom(firstRole) {
+      for (let i = firstRole; i < slots.length; i++) {
+        const goal = slots[i].need;
+        let sums = new Set([0]);
+        for (const item of options[i]) {
+          if (used.has(item.name)) continue;
+          const next = new Set(sums);
+          for (const sum of sums) if (sum + item.size <= goal) next.add(sum + item.size);
+          sums = next;
+          if (sums.has(goal)) break;
+        }
+        if (!sums.has(goal)) return false;
+      }
+      return true;
+    }
+    function recordPlan() {
+      const results = new Map();
+      let preference = 0, penalty = 0;
+      for (const room of roomList) {
+        const picks = chosen.filter(pick => pick.room.id === room.id).map(({ item, slot }) => ({ item, slot }));
+        const exp = teamSlots(room).map(slot => getSlotRecords(room)[slot].exp +
+          picks.filter(pick => pick.slot === slot).reduce((n, pick) => n + pick.item.exp, 0));
+        const juryPreferred = picks.filter(pick => pick.slot === 'jury' && pick.item.possibleJury)
+          .reduce((n, pick) => n + pick.item.size, 0);
+        preference += juryPreferred;
+        penalty += teamBalancePenalty(room, exp, globalRate);
+        results.set(room.id, { complete: true, picks, preference: juryPreferred, penalty: 0, exp });
+      }
+      const rates = roomList.flatMap(room => results.get(room.id).exp.map(n => n / seatsPerTeam(room)));
+      penalty += 5 * rates.reduce((n, rate) => n + (rate - globalRate) ** 2, 0);
+      const candidatePlan = { results, completed: roomList.slice(), juryPreference: preference, penalty };
+      if (!best || preference > best.juryPreference ||
+        (preference === best.juryPreference && (penalty < best.penalty - 1e-9 ||
+        (Math.abs(penalty - best.penalty) < 1e-9 && Math.random() < 0.5)))) best = candidatePlan;
+    }
+    function search(roleIndex, remaining, offset) {
+      if (++work > maxWork || found >= maxPlans) return;
+      if (roleIndex >= slots.length) {
+        found++;
+        recordPlan();
+        return;
+      }
+      if (!remaining) {
+        if (!feasibleFrom(roleIndex + 1)) return;
+        search(roleIndex + 1, slots[roleIndex + 1]?.need || 0, 0);
+        return;
+      }
+      const role = slots[roleIndex];
+      for (let i = offset; i < options[roleIndex].length && work <= maxWork && found < maxPlans; i++) {
+        const item = options[roleIndex][i];
+        if (used.has(item.name) || item.size > remaining) continue;
+        used.add(item.name);
+        chosen.push({ room: role.room, slot: role.slot, item });
+        search(roleIndex, remaining - item.size, i + 1);
+        chosen.pop();
+        used.delete(item.name);
+      }
+    }
+    if (feasibleFrom(0)) search(0, slots[0].need, 0);
+    return best;
+  }
+
   function distribute(mode, roomId = null) {
     const roomList = roomId ? state.rooms.filter(room => room.id === roomId) : state.rooms;
     const roomOnly = mode === 'rooms';
+    if (!roomList.length) return;
+    const overfilled = roomList.flatMap(room => [...teamSlots(room), 'jury'].flatMap(slot => {
+      const maximum = slot === 'jury' ? Math.max(1, room.juryCount) : seatsPerTeam(room);
+      const current = count(room.id, slot);
+      return current > maximum ? [{ room, slot, maximum, current }] : [];
+    }));
+    if (overfilled.length) {
+      state.notice = overfilled.map(({ room, slot, maximum, current }) => t('overfilled')
+        .replace('{room}', room.displayName || room.id).replace('{slot}', t(slot))
+        .replace('{current}', String(current)).replace('{maximum}', String(maximum))).join(' ');
+      return;
+    }
     const globalRate = globalExperienceRate(roomList);
     // Multiple randomized complete plans make it less likely that an early
     // room takes a group required to fill a later room. Nothing is moved until
@@ -466,7 +580,8 @@
       const used = new Set();
       const results = new Map();
       for (const room of order) {
-        const candidates = candidatesFor(room, !roomId).filter(item => !used.has(item.name));
+        const candidates = candidatesFor(room, !roomId || state.rooms.length === 1)
+          .filter(item => !used.has(item.name));
         const result = findCompleteRoomAllocation(room, candidates, globalRate);
         results.set(room.id, result);
         if (result.complete) for (const { item } of result.picks) used.add(item.name);
@@ -484,6 +599,12 @@
           && penalty < best.penalty - 1e-9)
         || (completed.length === best.completed.length && juryPreference === best.juryPreference
           && Math.abs(penalty - best.penalty) < 1e-9 && Math.random() < 0.5)) best = candidatePlan;
+    }
+    // Unlike random room permutations, the joint fallback can undo earlier
+    // room choices to locate a globally possible complete allocation.
+    if (!roomId && roomList.length > 1 && best?.completed.length < roomList.length) {
+      const joint = findJointRoomAllocation(roomList, globalRate);
+      if (joint) best = joint;
     }
     if (!best) return;
     const issues = [];

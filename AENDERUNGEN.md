@@ -1,4 +1,30 @@
-# Änderungen – 27. Oktober 2026
+# Änderungen – Debattenplaner v1.2 (27. Oktober 2026)
+
+## Behobene Fehler
+
+1. **Mehrraumverteilung:** Wenn die bisherige nacheinander ausgeführte Zuteilung nicht alle Räume füllen kann, durchsucht eine zusätzliche gemeinsame Rückwärtssuche die verfügbaren Gruppen und freien Plätze aller Räume. Das verhindert die nachgewiesene Fehleinteilung mit vier Dreiergruppen, einer Zweiergruppe und zwei Einzelpersonen. Die Suche ist aus Leistungsgründen begrenzt.
+2. **„Im Raum verteilen“ bei einem Raum:** Die Funktion greift jetzt auch auf die global unsortierten Teilnehmenden und vorgemerkten Juroren zu. Mit sieben Personen können 3 Regierungsredner, 3 Oppositionsredner und 1 Juror zugeteilt werden.
+3. **Überfüllte Teams/Jury:** Die automatische Zuteilung prüft jetzt ausdrücklich manuell überfüllte Plätze und zeigt die betroffenen Räume, Plätze und Zahlen an. Vor der Korrektur der Überfüllung nimmt sie keine Änderungen an der Belegung vor.
+
+## Unverändert
+
+- Originalgetreue Offline-Oberfläche, Drag-and-drop und Einzelpersonen beim manuellen Verschieben
+- Priorität für vorgemerkte Jurymitglieder, Erfahrungsausgleich, OPD/BPS und freie Reden
+- Bestehender GitHub-Link auf HalbFettKaese, keine Speicherung und kein Installationsbedarf
+
+## Tests
+
+- 12 gezielte Testkonstellationen erfolgreich, darunter 100 Wiederholungen der problematischen Mehrraumverteilung.
+- Vergleich mit v1.1 anhand von 160 reproduzierbaren Testläufen des schwierigen Gruppenfalls: v1.1 konnte keinen Lauf vollständig besetzen, v1.2 alle 160.
+- 120 unabhängig auf Lösbarkeit geprüfte Gruppenkonstellationen: 61 lösbare und 59 nicht lösbare, alle korrekt behandelt.
+- JavaScript-Syntaxprüfung bestanden.
+- Browser-Sichtprüfung in der Testumgebung nicht möglich (Browser sperrt sowohl lokale Dateien als auch den Testserver).
+
+---
+
+## Änderungen der Vorgängerversion v1.1
+
+
 
 ## Automatische Einteilung
 
