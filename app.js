@@ -161,20 +161,39 @@
   }
   function unlink(name) {
     if (!state.members[name]) return;
-    const groupName = rootOf(name);
-    const parent = state.members[groupName];
+    const rootName = rootOf(name);
+    const parent = state.members[rootName];
     if (!parent?.children.length) return;
+    const list = getList(parent.room, parent.slot);
+    const position = list.indexOf(rootName);
     const children = parent.children.slice();
-    const pos = getList(parent.room, parent.slot).indexOf(groupName);
-    for (const child of children) moveMember(child, parent.room, parent.slot, pos + 1 + children.indexOf(child));
+    parent.children = [];
+    for (const childName of children) {
+      const child = state.members[childName];
+      if (!child) continue;
+      child.parent = null;
+      child.room = parent.room;
+      child.slot = parent.slot;
+    }
+    // Insert siblings in their original sequence, *after* their former lead.
+    list.splice(position + 1, 0, ...children);
   }
   function deleteMember(name) {
     if (!state.members[name]) return;
     const member = state.members[name];
     if (member.children.length) {
-      // Keep former group members in the same slot after removing the leader.
-      const pos = getList(member.room, member.slot).indexOf(name);
-      for (const child of member.children.slice()) moveMember(child, member.room, member.slot, pos + 1 + member.children.indexOf(child));
+      const list = getList(member.room, member.slot);
+      const position = list.indexOf(name);
+      const children = member.children.slice();
+      member.children = [];
+      for (const childName of children) {
+        const child = state.members[childName];
+        if (!child) continue;
+        child.parent = null;
+        child.room = member.room;
+        child.slot = member.slot;
+      }
+      list.splice(position + 1, 0, ...children);
     }
     detach(name);
     delete state.members[name];
@@ -278,58 +297,198 @@
         possibleJury: sourceSlot === 'unsortedJury'
       }))));
   }
-  function findCompleteRoomAllocation(room, candidates) {
-    const slots = [...teamSlots(room), 'jury'];
+  // Allocate complete debates using a 0/1 dynamic program. Every group is kept
+  // intact. Unlike the earlier version, the search retains different experience
+  // compositions for the same number of filled seats: two full teams are not
+  // necessarily equally balanced just because they contain the same headcount.
+  function teamBalancePenalty(room, experienceByTeam, globalRate) {
+    const sizes = teamSlots(room).map(slot => seatsPerTeam(room));
+    const rates = experienceByTeam.map((experienced, i) => experienced / sizes[i]);
+    const average = rates.reduce((total, value) => total + value, 0) / rates.length;
+    // Both the difference *within a debate* and the difference between debates
+    // matter. The global rate helps prevent one room consuming every expert.
+    return 24 * (average - globalRate) ** 2 * rates.length
+      + rates.reduce((total, rate) => total + 5 * (rate - average) ** 2
+        + 8 * (rate - globalRate) ** 2, 0)
+      - experienceByTeam.reduce((bonus, experienced, i) =>
+        bonus + (experienced > 0 && experienced < sizes[i] ? 3 : 0), 0);
+  }
+  function compactCandidates(candidates, needed, deficits) {
+    // All people with the same group size, experience mix, jury preference and
+    // source location are equivalent to the allocator. For a large event it is
+    // unnecessary to explore every interchangeable person individually.
+    const usable = candidates.filter(item => deficits.some(n => n >= item.size));
+    if (usable.length <= Math.max(24, needed * 2)) return usable;
+    const byType = new Map();
+    for (const item of shuffle(usable.slice())) {
+      const type = [item.size, item.exp, Number(item.possibleJury), item.sourceRoom].join(':');
+      if (!byType.has(type)) byType.set(type, []);
+      byType.get(type).push(item);
+    }
+    const available = usable.reduce((n, item) => n + item.size, 0);
+    const picked = [], remaining = [];
+    for (const group of byType.values()) {
+      const groupTotal = group.reduce((n, item) => n + item.size, 0);
+      const limit = Math.min(group.length, Math.max(3,
+        Math.min(needed, Math.ceil(needed * groupTotal / available) + 4)));
+      picked.push(...group.slice(0, limit));
+      remaining.push(...group.slice(limit));
+    }
+    let availableSelected = picked.reduce((n, item) => n + item.size, 0);
+    for (const item of shuffle(remaining)) {
+      if (availableSelected >= needed) break;
+      picked.push(item);
+      availableSelected += item.size;
+    }
+    return picked;
+  }
+  function findCompleteRoomAllocationExact(room, candidates, globalRate) {
+    return findCompleteRoomAllocation(room, candidates, globalRate, true);
+  }
+  function findCompleteRoomAllocation(room, candidates, globalRate, exact = false) {
+    const teams = teamSlots(room);
+    const slots = [...teams, 'jury'];
     const deficits = slots.map(slot => Math.max(0,
       (slot === 'jury' ? Math.max(1, room.juryCount) : seatsPerTeam(room)) - count(room.id, slot)));
-    const initial = deficits.map(() => 0);
-    const goal = deficits.join(':');
     const needed = deficits.reduce((sum, n) => sum + n, 0);
-    if (needed === 0) return { complete: true, picks: [], needed, available: 0 };
     const available = candidates.reduce((sum, item) => sum + item.size, 0);
+    if (!needed) return { complete: true, picks: [], needed, available, preference: 0, penalty: 0 };
     if (available < needed) return { complete: false, picks: [], needed, available };
 
-    // Dynamic programming over the (small) number of seats needed. Unlike a greedy
-    // strategy, this also handles groups, e.g. groups of 2+1 and 3 per team.
-    // A state stores the best score and a linked path of selections.
-    let states = new Map([['' + initial.join(':'), { score: 0, path: null }]]);
-    const shuffled = shuffle(candidates.slice());
-    for (const item of shuffled) {
+    const dims = slots.length;
+    const initial = Array(dims + teams.length).fill(0);
+    const goal = deficits.join(',');
+    let states = new Map([[initial.join(','), {
+      prefJury: 0, prefSpeaker: 0, local: 0, path: null
+    }]]);
+    // Candidate order is randomized. Equivalent good distributions can therefore
+    // lead to different real-world groupings on successive button presses.
+    for (const item of shuffle(exact ? candidates.slice() : compactCandidates(candidates, needed, deficits))) {
       const next = new Map(states);
       for (const [key, entry] of states) {
-        const filled = key.split(':').map(Number);
-        for (let role = 0; role < slots.length; role++) {
-          if (filled[role] + item.size > deficits[role]) continue;
-          const updated = filled.slice();
+        const numbers = key.split(',').map(Number);
+        for (let role = 0; role < dims; role++) {
+          if (numbers[role] + item.size > deficits[role]) continue;
+          const updated = numbers.slice();
           updated[role] += item.size;
-          const newKey = updated.join(':');
-          const isJury = slots[role] === 'jury';
-          const experienceBonus = isJury ? item.exp * 6 : item.exp * 2;
-          // Preferring possible jurors is more important than team balance.
-          const score = entry.score + (isJury ? (item.possibleJury ? 1000 : 0)
-            : (item.possibleJury ? -100 : 0)) + experienceBonus
-            + (item.sourceRoom === room.id ? 30 : 0) + item.size;
-          if (!next.has(newKey) || next.get(newKey).score < score) {
-            next.set(newKey, { score, path: { item, slot: slots[role], previous: entry.path } });
-          }
+          if (role < teams.length) updated[dims + role] += item.exp;
+          const nextKey = updated.join(',');
+          const isJury = role === teams.length;
+          const proposal = {
+            prefJury: entry.prefJury + (isJury && item.possibleJury ? item.size : 0),
+            prefSpeaker: entry.prefSpeaker + (!isJury && item.possibleJury ? item.size : 0),
+            local: entry.local + (item.sourceRoom === room.id ? item.size : 0),
+            path: { item, slot: slots[role], previous: entry.path }
+          };
+          const old = next.get(nextKey);
+          // For an identical partial seating and experience configuration,
+          // keeping more pre-registered jurors in the jury is always optimal.
+          const better = !old || proposal.prefJury > old.prefJury
+            || (proposal.prefJury === old.prefJury && proposal.prefSpeaker < old.prefSpeaker)
+            || (proposal.prefJury === old.prefJury && proposal.prefSpeaker === old.prefSpeaker
+              && (proposal.local > old.local
+                || (proposal.local === old.local && Math.random() < 0.5)));
+          if (better) next.set(nextKey, proposal);
         }
       }
       states = next;
     }
-    const solution = states.get(goal);
-    if (!solution) return { complete: false, picks: [], needed, available };
+    const manualExp = teams.map(slot => getSlotRecords(room)[slot].exp);
+    let best = null;
+    for (const [key, entry] of states) {
+      const nums = key.split(',').map(Number);
+      if (nums.slice(0, dims).join(',') !== goal) continue;
+      const exp = manualExp.map((n, i) => n + nums[dims + i]);
+      const penalty = teamBalancePenalty(room, exp, globalRate);
+      if (!best || entry.prefJury > best.entry.prefJury
+        || (entry.prefJury === best.entry.prefJury && penalty < best.penalty - 1e-9)
+        || (entry.prefJury === best.entry.prefJury && Math.abs(penalty - best.penalty) < 1e-9
+          && (entry.prefSpeaker < best.entry.prefSpeaker
+            || (entry.prefSpeaker === best.entry.prefSpeaker && Math.random() < 0.5)))) {
+        best = { entry, penalty, exp };
+      }
+    }
+    if (!best && !exact && candidates.length > Math.max(24, needed * 2)) {
+      // On unusually restrictive combinations of groups, retry with the full
+      // pool: an optimization must never turn a possible seating into failure.
+      return findCompleteRoomAllocationExact(room, candidates, globalRate);
+    }
+    if (!best) return { complete: false, picks: [], needed, available };
     const picks = [];
-    for (let node = solution.path; node; node = node.previous) picks.push({ item: node.item, slot: node.slot });
-    return { complete: true, picks: picks.reverse(), needed, available };
+    for (let node = best.entry.path; node; node = node.previous) {
+      picks.push({ item: node.item, slot: node.slot });
+    }
+    return { complete: true, picks: picks.reverse(), needed, available,
+      preference: best.entry.prefJury, penalty: best.penalty, exp: best.exp };
   }
+
+  function globalExperienceRate(rooms) {
+    const teams = rooms.flatMap(room => teamSlots(room).map(slot => ({ room, slot })));
+    const fixedSpeakers = teams.reduce((n, { room, slot }) => n + count(room.id, slot), 0);
+    const fixedExperienced = teams.reduce((n, { room, slot }) => n + getSlotRecords(room)[slot].exp, 0);
+    const candidateNames = new Set();
+    for (const room of rooms) for (const source of [rootId, room.id]) {
+      for (const slot of ['unsortedJury', 'unsorted']) {
+        for (const name of listNames(source, slot)) candidateNames.add(name);
+      }
+    }
+    const pool = [...candidateNames].map(name => ({ name, possible: state.members[name]?.slot === 'unsortedJury' }));
+    // Estimate who is likely to judge without treating jury experience as a
+    // mandatory qualification. Selection among registered jurors stays random
+    // when its effect on speaking teams is identical.
+    const juryNeeded = rooms.reduce((n, room) => n + Math.max(0, room.juryCount - count(room.id, 'jury')), 0);
+    const possible = pool.filter(item => item.possible);
+    const otherwise = pool.filter(item => !item.possible);
+    const sizeOf = items => items.reduce((n, item) => n + partySize(item.name), 0);
+    const expOf = items => items.reduce((n, item) => n + partyExp(item.name), 0);
+    const expPool = expOf(pool), totalPool = sizeOf(pool);
+    const preferredJurySeats = Math.min(juryNeeded, sizeOf(possible));
+    const fromOthers = Math.max(0, juryNeeded - preferredJurySeats);
+    const expectedJuryExp = preferredJurySeats * expOf(possible) / (sizeOf(possible) || 1)
+      + fromOthers * expOf(otherwise) / (sizeOf(otherwise) || 1);
+    const eligibleSpeakers = fixedSpeakers + totalPool - juryNeeded;
+    return eligibleSpeakers > 0 ? Math.max(0, Math.min(1,
+      (fixedExperienced + expPool - expectedJuryExp) / eligibleSpeakers)) : 0;
+  }
+
   function distribute(mode, roomId = null) {
     const roomList = roomId ? state.rooms.filter(room => room.id === roomId) : state.rooms;
-    const completed = [];
-    const issues = [];
     const roomOnly = mode === 'rooms';
+    const globalRate = globalExperienceRate(roomList);
+    // Multiple randomized complete plans make it less likely that an early
+    // room takes a group required to fill a later room. Nothing is moved until
+    // the best complete plan has been chosen.
+    const trials = roomList.length > 1 && !roomId
+      ? (roomList.some(room => room.format === 'bpd') ? 2 : 5) : 1;
+    let best = null;
+    for (let trial = 0; trial < trials; trial++) {
+      const order = trial === 0 ? roomList.slice() : shuffle(roomList.slice());
+      const used = new Set();
+      const results = new Map();
+      for (const room of order) {
+        const candidates = candidatesFor(room, !roomId).filter(item => !used.has(item.name));
+        const result = findCompleteRoomAllocation(room, candidates, globalRate);
+        results.set(room.id, result);
+        if (result.complete) for (const { item } of result.picks) used.add(item.name);
+      }
+      const completed = roomList.filter(room => results.get(room.id).complete);
+      const juryPreference = completed.reduce((n, room) => n + results.get(room.id).preference, 0);
+      const rates = completed.flatMap(room => teamSlots(room).map((slot, i) =>
+        (results.get(room.id).exp || teamSlots(room).map(id => getSlotRecords(room)[id].exp))[i] / seatsPerTeam(room)));
+      const acrossRooms = rates.reduce((n, rate) => n + (rate - globalRate) ** 2, 0);
+      const penalty = completed.reduce((n, room) => n + results.get(room.id).penalty, 0) + 5 * acrossRooms;
+      const candidatePlan = { results, completed, juryPreference, penalty };
+      if (!best || completed.length > best.completed.length
+        || (completed.length === best.completed.length && juryPreference > best.juryPreference)
+        || (completed.length === best.completed.length && juryPreference === best.juryPreference
+          && penalty < best.penalty - 1e-9)
+        || (completed.length === best.completed.length && juryPreference === best.juryPreference
+          && Math.abs(penalty - best.penalty) < 1e-9 && Math.random() < 0.5)) best = candidatePlan;
+    }
+    if (!best) return;
+    const issues = [];
     for (const room of roomList) {
-      const candidates = candidatesFor(room, !roomId);
-      const result = findCompleteRoomAllocation(room, candidates);
+      const result = best.results.get(room.id);
       if (!result.complete) {
         const name = room.displayName || room.id;
         const reason = result.available < result.needed
@@ -338,39 +497,36 @@
         issues.push(t('partial').replace('{room}', name).replace('{reason}', reason));
         continue;
       }
-      // Apply the chosen plan as a unit only after a complete allocation exists.
       for (const { item, slot } of result.picks) {
         moveMember(item.name, room.id, roomOnly && slot !== 'jury' ? 'unsorted' : slot);
       }
-      completed.push(room);
     }
+    const completed = best.completed;
     if (completed.length) {
       if (roomOnly) {
-        // Room-only mode distributes the remaining pool among rooms; actual
-        // speaker teams are filled by the later "within room" action.
         if (!issues.length) for (const slot of ['unsorted', 'unsortedJury']) {
           for (const name of listNames(rootId, slot)) {
-            const room = completed.reduce((best, current) =>
+            const room = completed.reduce((first, current) =>
               count(current.id, 'unsorted') + count(current.id, 'unsortedJury')
-                < count(best.id, 'unsorted') + count(best.id, 'unsortedJury') ? current : best);
+                < count(first.id, 'unsorted') + count(first.id, 'unsortedJury') ? current : first);
             moveMember(name, room.id, slot);
           }
         }
       } else {
-        // Only after all required roles are full can an OPD room get free speakers.
         for (const room of completed.filter(room => room.format === 'opd')) {
           for (const slot of ['unsorted', 'unsortedJury']) {
             for (const name of listNames(room.id, slot)) moveMember(name, room.id, 'opd_free_speakers');
           }
         }
         const opdRooms = completed.filter(room => room.format === 'opd');
-        // Do not consume the remaining global pool as free speakers while another
-        // room still needs them to form complete teams in a later round.
+        // Leftover potential jurors are speakers only after all jury seats in
+        // the planned debates have been filled. An incomplete debate retains
+        // access to the global pool for the next distribution attempt.
         if (opdRooms.length && !issues.length) {
           for (const slot of ['unsorted', 'unsortedJury']) {
             for (const name of listNames(rootId, slot)) {
-              const room = opdRooms.reduce((best, current) =>
-                count(current.id, 'opd_free_speakers') < count(best.id, 'opd_free_speakers') ? current : best);
+              const room = opdRooms.reduce((first, current) =>
+                count(current.id, 'opd_free_speakers') < count(first.id, 'opd_free_speakers') ? current : first);
               moveMember(name, room.id, 'opd_free_speakers');
             }
           }
