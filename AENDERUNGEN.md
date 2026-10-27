@@ -1,3 +1,34 @@
+# Änderungen – Debattenplaner v1.3 (27. Oktober 2026)
+
+## Ziel
+
+Stabilitätsupdate für die bestehende Offline-Anwendung. Keine Datenbank, keine Installation, keine Neugestaltung.
+
+## Korrekturen
+
+1. **Doppelklick zur Gruppenauflösung:** Ein gewöhnlicher Klick zeichnet nicht mehr die gesamte Teilnehmerliste neu. Die Auswahlhinweise und Zuweisungsschaltflächen sind nun so platziert, dass sie beim ersten Klick keine Elemente verschieben. Dadurch kann der Browser den Doppelklick zuverlässig erkennen.
+2. **Einzelperson beim manuellen Verschieben:** Auch wenn die bewegte Person eine Gruppe anführt, wird beim Verschieben per Drag-and-drop oder „Hier zuweisen“ nur diese Person bewegt. Die anderen Gruppenmitglieder bleiben an ihrem bisherigen Ort. **Die automatische Einteilung behandelt Gruppen weiterhin als Einheit.**
+3. **Mehrraum-Suche:** Schwierige Rollen werden bevorzugt geprüft; nachweislich erfolglose Suchzustände werden wiedererkannt. Zusätzlich zu der Anzahl der Suchschritte gilt eine Zeitgrenze für die Rückwärtssuche. Eine abgebrochene Suche wird ausdrücklich als solche gemeldet und nicht mehr mit einer unmöglichen Einteilung verwechselt.
+4. **Prüfung vor Übernahme:** Die automatisch berechnete Verteilung wird auf vollständige Sitzplatzzahlen, passende Gruppen, erlaubte Quellen und doppelte Verwendungen geprüft, bevor auch nur ein Teilnehmer verschoben wird. Ist der Plan inkonsistent, wird er verworfen und die bisherige Einteilung bleibt bestehen.
+
+## Tests
+
+- 12 von 12 praktischen Chromium-Bedienungstests bestanden: Eingaben, Auswahl, Doppelklick, 16 Gruppen-Auflösen-Zyklen, Drag-and-drop, Klick-Zuweisung, Dunkelmodus, Sprache, OPD, Warnung bei Überfüllung, mobile Ansicht und mehrere Räume/Formatwechsel.
+- 7 zusätzliche Browser-Smoke-Tests bestanden.
+- 12 bestehende v1.2-Regressionstests bestanden, darunter 100 wiederholte schwierige Zweiraumkonstellationen (insgesamt 321 erfolgreich geprüfte Integritätsbedingungen).
+- 47 zufällig erzeugte, ausreichend große Gruppen-Konstellationen mit unabhängiger Lösbarkeitsprüfung verglichen; keine Abweichung. Zwei zusätzliche Einzelverschiebe-Prüfungen erfolgreich.
+- JavaScript-Syntaxprüfung erfolgreich.
+
+**Grenzen:** Diese Tests beweisen keine 100-prozentige Fehlerfreiheit. Besonders komplexe Gruppenaufteilungen können die begrenzte Suche weiterhin überfordern. Ein echter `file://`-Start ist in der Testumgebung administrativ gesperrt; die Seite wurde jedoch mit demselben lokalen HTML-/CSS-/JS-Code in Chromium getestet. Firefox, Safari und reale Touchgeräte wurden nicht durchgängig geprüft.
+
+## Unverändert
+
+- OPD/BPS, Vorrang vorgemerkter Jurorinnen und Juroren, Erfahrungsausgleich und freie Reden.
+- Ursprünglicher GitHub-Link auf HalbFettKaese.
+- Oberfläche im ursprünglichen Stil, Offline-Betrieb ohne Zusatzprogramme und **keine Datenspeicherung**.
+
+---
+
 # Änderungen – Debattenplaner v1.2 (27. Oktober 2026)
 
 ## Behobene Fehler

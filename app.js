@@ -40,7 +40,9 @@
       noComplete: 'Keine vollständige Debatte möglich. Noch niemand automatisch zugeteilt.',
       completion: 'Automatisch eingeteilt: {n} Raum/Räume.',
       partial: 'Raum {room}: {reason}',
-      overfilled: 'Raum {room}: {slot} ist überfüllt ({current} statt höchstens {maximum}). Bitte die manuelle Zuweisung korrigieren.'
+      overfilled: 'Raum {room}: {slot} ist überfüllt ({current} statt höchstens {maximum}). Bitte die manuelle Zuweisung korrigieren.',
+      searchLimit: 'Die Suche nach einer vollständigen Einteilung hat ihre Rechengrenze erreicht. Möglicherweise gibt es eine Lösung. Bitte Gruppierung oder Raumgrößen anpassen und erneut versuchen.',
+      invalidPlan: 'Interner Plausibilitätsfehler: Die errechnete Einteilung wurde nicht übernommen. Keine Änderungen vorgenommen.'
     },
     en: {
       title: 'Debate Planner', subtitle: 'No installation · Offline',
@@ -64,7 +66,9 @@
       noComplete: 'No complete debate is possible. No one was automatically assigned.',
       completion: 'Automatically allocated: {n} room(s).',
       partial: 'Room {room}: {reason}',
-      overfilled: 'Room {room}: {slot} is overfilled ({current}; maximum {maximum}). Please adjust manual assignments.'
+      overfilled: 'Room {room}: {slot} is overfilled ({current}; maximum {maximum}). Please adjust manual assignments.',
+      searchLimit: 'The search for a complete seating hit its computational limit. A valid seating may still exist. Adjust groups or room sizes and retry.',
+      invalidPlan: 'Internal validation failed: the proposed seating was not applied. No changes made.'
     }
   };
 
@@ -140,6 +144,12 @@
     const list = getList(room, slot);
     list.splice(Math.max(0, Math.min(list.length, index)), 0, name);
     return true;
+  }
+  // Deliberate manual moves act on one person, even if that person currently
+  // leads a group. Automatic seating still moves the full group atomically.
+  function moveSingleMember(name, room, slot, index = Infinity) {
+    if (state.members[name]?.children.length) unlink(name);
+    return moveMember(name, room, slot, index);
   }
   function addChild(targetName, sourceName) {
     if (!state.members[targetName] || !state.members[sourceName]) return false;
@@ -469,7 +479,7 @@
       room, slot,
       need: (slot === 'jury' ? Math.max(1, room.juryCount) : seatsPerTeam(room)) - count(room.id, slot)
     })).filter(role => role.need > 0));
-    if (!slots.length) return null;
+    if (!slots.length) return { plan: null, limitReached: false };
 
     const candidatesByName = new Map();
     for (const room of roomList) {
@@ -478,8 +488,13 @@
       }
     }
     const candidates = shuffle([...candidatesByName.values()]);
+    // Most constrained role first: a jury seat requiring a singleton or a room
+    // with only a small local pool must be seated before flexible roles.
+    const optionsCount = role => candidates.filter(item =>
+      (item.sourceRoom === rootId || item.sourceRoom === role.room.id) && item.size <= role.need).length;
+    slots.sort((a, b) => (optionsCount(a) / a.need) - (optionsCount(b) / b.need));
     const required = slots.reduce((n, role) => n + role.need, 0);
-    if (candidates.reduce((n, item) => n + item.size, 0) < required) return null;
+    if (candidates.reduce((n, item) => n + item.size, 0) < required) return { plan: null, limitReached: false };
 
     const options = slots.map(role => candidates.filter(item =>
       (item.sourceRoom === rootId || item.sourceRoom === role.room.id) && item.size <= role.need
@@ -487,10 +502,15 @@
       ? Number(b.possibleJury) - Number(a.possibleJury) || b.size - a.size
       : b.size - a.size));
     const used = new Set(), chosen = [];
-    let best = null, work = 0, found = 0;
+    const noSolution = new Set();
+    let best = null, work = 0, found = 0, limitReached = false;
     // These limits apply only to the fallback search; normal distribution uses
     // the fast room solver. No changes are committed until a full plan exists.
-    const maxWork = 120000, maxPlans = 36;
+    // A time bound is essential in a single-threaded offline page: node-count
+    // limits alone allow unusually expensive candidate branches to freeze UI.
+    const maxWork = 25000, maxPlans = 48, deadline = Date.now() + 900;
+    const outOfBudget = () => work >= maxWork || found >= maxPlans ||
+      ((work & 63) === 0 && Date.now() >= deadline);
     function feasibleFrom(firstRole) {
       for (let i = firstRole; i < slots.length; i++) {
         const goal = slots[i].need;
@@ -527,30 +547,41 @@
         (Math.abs(penalty - best.penalty) < 1e-9 && Math.random() < 0.5)))) best = candidatePlan;
     }
     function search(roleIndex, remaining, offset) {
-      if (++work > maxWork || found >= maxPlans) return;
+      if (outOfBudget()) {
+        limitReached = true;
+        return false;
+      }
+      work++;
       if (roleIndex >= slots.length) {
         found++;
         recordPlan();
-        return;
+        return true;
       }
       if (!remaining) {
-        if (!feasibleFrom(roleIndex + 1)) return;
-        search(roleIndex + 1, slots[roleIndex + 1]?.need || 0, 0);
-        return;
+        if (!feasibleFrom(roleIndex + 1)) return false;
+        return search(roleIndex + 1, slots[roleIndex + 1]?.need || 0, 0);
       }
+      // Memoize only proven impossible states. A search cut short by the limit
+      // cannot prove impossibility and must never enter the cache.
+      const memoKey = [roleIndex, remaining, offset, [...used].sort().join('\u001f')].join('\u001e');
+      if (noSolution.has(memoKey)) return false;
+      let any = false;
       const role = slots[roleIndex];
-      for (let i = offset; i < options[roleIndex].length && work <= maxWork && found < maxPlans; i++) {
+      for (let i = offset; i < options[roleIndex].length; i++) {
+        if (outOfBudget()) { limitReached = true; break; }
         const item = options[roleIndex][i];
         if (used.has(item.name) || item.size > remaining) continue;
         used.add(item.name);
         chosen.push({ room: role.room, slot: role.slot, item });
-        search(roleIndex, remaining - item.size, i + 1);
+        if (search(roleIndex, remaining - item.size, i + 1)) any = true;
         chosen.pop();
         used.delete(item.name);
       }
+      if (!any && !limitReached) noSolution.add(memoKey);
+      return any;
     }
     if (feasibleFrom(0)) search(0, slots[0].need, 0);
-    return best;
+    return { plan: best, limitReached };
   }
 
   function distribute(mode, roomId = null) {
@@ -602,19 +633,43 @@
     }
     // Unlike random room permutations, the joint fallback can undo earlier
     // room choices to locate a globally possible complete allocation.
+    let searchLimitReached = false;
     if (!roomId && roomList.length > 1 && best?.completed.length < roomList.length) {
       const joint = findJointRoomAllocation(roomList, globalRate);
-      if (joint) best = joint;
+      if (joint.plan) best = joint.plan;
+      else searchLimitReached = joint.limitReached;
     }
     if (!best) return;
+    // The allocation is transactional: reject an inconsistent candidate plan
+    // before moving even a single participant. Manual occupants stay fixed.
+    const newlyPlaced = new Set();
+    let validPlan = true;
+    for (const room of best.completed) {
+      const result = best.results.get(room.id);
+      if (!result?.complete) { validPlan = false; break; }
+      const totals = Object.fromEntries([...teamSlots(room), 'jury'].map(slot => [slot, count(room.id, slot)]));
+      for (const { item, slot } of result.picks) {
+        if (!Object.hasOwn(totals, slot) || newlyPlaced.has(item.name) ||
+            !state.members[item.name] || !['unsorted', 'unsortedJury'].includes(state.members[item.name].slot) ||
+            ![rootId, room.id].includes(state.members[item.name].room) ||
+            partySize(item.name) !== item.size) { validPlan = false; break; }
+        newlyPlaced.add(item.name);
+        totals[slot] += item.size;
+      }
+      if (Object.entries(totals).some(([slot, total]) =>
+        total !== (slot === 'jury' ? Math.max(1, room.juryCount) : seatsPerTeam(room)))) validPlan = false;
+      if (!validPlan) break;
+    }
+    if (!validPlan) { state.notice = t('invalidPlan'); return; }
     const issues = [];
     for (const room of roomList) {
       const result = best.results.get(room.id);
       if (!result.complete) {
         const name = room.displayName || room.id;
-        const reason = result.available < result.needed
-          ? t('needsParticipants').replace('{n}', String(result.needed - result.available))
-          : t('groupsPrevent');
+        const reason = searchLimitReached ? t('searchLimit')
+          : result.available < result.needed
+            ? t('needsParticipants').replace('{n}', String(result.needed - result.available))
+            : t('groupsPrevent');
         issues.push(t('partial').replace('{room}', name).replace('{reason}', reason));
         continue;
       }
@@ -767,6 +822,41 @@
 
   const app = document.getElementById('app');
   if (!app) return;
+  // A click on a participant must NOT rerender its DOM node: doing so between
+  // the two click events suppresses the browser's native dblclick event.
+  // Update only the selection marker and its per-slot controls instead.
+  function refreshSelectionUI() {
+    if (state.selected && !state.members[state.selected]) state.selected = null;
+    for (const chip of app.querySelectorAll('.member[data-member]'))
+      chip.classList.toggle('selected', chip.dataset.member === state.selected);
+    const content = app.querySelector('.content');
+    if (!content) return;
+    let hint = content.querySelector('.selected-hint');
+    if (state.selected) {
+      if (!hint) {
+        hint = document.createElement('div');
+        hint.className = 'selected-hint';
+        content.insertBefore(hint, content.querySelector('.room-row'));
+      }
+      hint.innerHTML = `<strong>${escapeHtml(t('selected'))}: ${escapeHtml(state.selected)}</strong> <button type="button" data-action="clear-selection">${escapeHtml(t('cancel'))}</button>`;
+    } else if (hint) hint.remove();
+    for (const section of app.querySelectorAll('.slot[data-room][data-slot]')) {
+      const controls = section.querySelector('.slot-controls');
+      if (!controls) continue;
+      const old = controls.querySelector('.place-btn');
+      if (!state.selected) { if (old) old.remove(); continue; }
+      if (!old) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'place-btn';
+        button.dataset.action = 'place';
+        button.dataset.room = section.dataset.room;
+        button.dataset.slot = section.dataset.slot;
+        button.textContent = t('placeHere');
+        controls.append(button);
+      }
+    }
+  }
   addRoom();
   render();
 
@@ -826,7 +916,7 @@
         case 'distribute-all': distribute('teams'); break;
         case 'distribute-room': distribute('teams', room); break;
         case 'place':
-          if (state.selected) moveMember(state.selected, room, slot);
+          if (state.selected) moveSingleMember(state.selected, room, slot);
           state.selected = null;
           break;
       }
@@ -839,7 +929,11 @@
     if (state.selected && state.selected !== name && rootOf(state.selected) !== rootOf(name)) {
       addChild(name, state.selected);
       state.selected = null;
-    } else state.selected = state.selected === name ? null : name;
+    } else {
+      state.selected = state.selected === name ? null : name;
+      refreshSelectionUI();
+      return;
+    }
     render();
   });
   app.addEventListener('dblclick', event => {
@@ -893,7 +987,7 @@
           ? (event.clientY < rect.top || (event.clientY <= rect.bottom && event.clientX < rect.left + rect.width / 2))
           : event.clientY < rect.top + rect.height / 2) { position = i; break; }
       }
-      moveMember(name, slot.dataset.room, slot.dataset.slot, position);
+      moveSingleMember(name, slot.dataset.room, slot.dataset.slot, position);
     }
     state.dragging = null;
     state.selected = null;
