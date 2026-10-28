@@ -375,7 +375,7 @@
     const initial = Array(dims + teams.length).fill(0);
     const goal = deficits.join(',');
     let states = new Map([[initial.join(','), {
-      prefJury: 0, prefSpeaker: 0, local: 0, path: null
+      prefJury: 0, experiencedJury: 0, prefSpeaker: 0, local: 0, path: null
     }]]);
     // Candidate order is randomized. Equivalent good distributions can therefore
     // lead to different real-world groupings on successive button presses.
@@ -392,18 +392,24 @@
           const isJury = role === teams.length;
           const proposal = {
             prefJury: entry.prefJury + (isJury && item.possibleJury ? item.size : 0),
+            // Among non-volunteers, experienced jurors must come before newcomers.
+            // A volunteered novice is still ahead of every non-volunteer.
+            experiencedJury: entry.experiencedJury + (isJury && !item.possibleJury ? item.exp : 0),
             prefSpeaker: entry.prefSpeaker + (!isJury && item.possibleJury ? item.size : 0),
             local: entry.local + (item.sourceRoom === room.id ? item.size : 0),
             path: { item, slot: slots[role], previous: entry.path }
           };
           const old = next.get(nextKey);
-          // For an identical partial seating and experience configuration,
-          // keeping more pre-registered jurors in the jury is always optimal.
+          // Lexicographic jury policy: volunteers first, then experienced
+          // non-volunteers, only then inexperienced non-volunteers.
+          // Never trade a higher jury priority for a better team balance.
           const better = !old || proposal.prefJury > old.prefJury
-            || (proposal.prefJury === old.prefJury && proposal.prefSpeaker < old.prefSpeaker)
-            || (proposal.prefJury === old.prefJury && proposal.prefSpeaker === old.prefSpeaker
-              && (proposal.local > old.local
-                || (proposal.local === old.local && Math.random() < 0.5)));
+            || (proposal.prefJury === old.prefJury && proposal.experiencedJury > old.experiencedJury)
+            || (proposal.prefJury === old.prefJury && proposal.experiencedJury === old.experiencedJury
+              && (proposal.prefSpeaker < old.prefSpeaker
+                || (proposal.prefSpeaker === old.prefSpeaker
+                  && (proposal.local > old.local
+                    || (proposal.local === old.local && Math.random() < 0.5)))));
           if (better) next.set(nextKey, proposal);
         }
       }
@@ -417,10 +423,12 @@
       const exp = manualExp.map((n, i) => n + nums[dims + i]);
       const penalty = teamBalancePenalty(room, exp, globalRate);
       if (!best || entry.prefJury > best.entry.prefJury
-        || (entry.prefJury === best.entry.prefJury && penalty < best.penalty - 1e-9)
-        || (entry.prefJury === best.entry.prefJury && Math.abs(penalty - best.penalty) < 1e-9
-          && (entry.prefSpeaker < best.entry.prefSpeaker
-            || (entry.prefSpeaker === best.entry.prefSpeaker && Math.random() < 0.5)))) {
+        || (entry.prefJury === best.entry.prefJury && entry.experiencedJury > best.entry.experiencedJury)
+        || (entry.prefJury === best.entry.prefJury && entry.experiencedJury === best.entry.experiencedJury
+          && (penalty < best.penalty - 1e-9
+            || (Math.abs(penalty - best.penalty) < 1e-9
+              && (entry.prefSpeaker < best.entry.prefSpeaker
+                || (entry.prefSpeaker === best.entry.prefSpeaker && Math.random() < 0.5)))))) {
         best = { entry, penalty, exp };
       }
     }
@@ -435,7 +443,8 @@
       picks.push({ item: node.item, slot: node.slot });
     }
     return { complete: true, picks: picks.reverse(), needed, available,
-      preference: best.entry.prefJury, penalty: best.penalty, exp: best.exp };
+      preference: best.entry.prefJury, experiencedJury: best.entry.experiencedJury,
+      penalty: best.penalty, exp: best.exp };
   }
 
   function globalExperienceRate(rooms) {
@@ -449,9 +458,9 @@
       }
     }
     const pool = [...candidateNames].map(name => ({ name, possible: state.members[name]?.slot === 'unsortedJury' }));
-    // Estimate who is likely to judge without treating jury experience as a
-    // mandatory qualification. Selection among registered jurors stays random
-    // when its effect on speaking teams is identical.
+    // Predict jury experience with the same strict preference order as the
+    // allocation: registered volunteers first, experienced others second.
+    // This estimate is for speaker balancing, not a mandatory qualification.
     const juryNeeded = rooms.reduce((n, room) => n + Math.max(0, room.juryCount - count(room.id, 'jury')), 0);
     const possible = pool.filter(item => item.possible);
     const otherwise = pool.filter(item => !item.possible);
@@ -461,7 +470,7 @@
     const preferredJurySeats = Math.min(juryNeeded, sizeOf(possible));
     const fromOthers = Math.max(0, juryNeeded - preferredJurySeats);
     const expectedJuryExp = preferredJurySeats * expOf(possible) / (sizeOf(possible) || 1)
-      + fromOthers * expOf(otherwise) / (sizeOf(otherwise) || 1);
+      + Math.min(fromOthers, expOf(otherwise));
     const eligibleSpeakers = fixedSpeakers + totalPool - juryNeeded;
     return eligibleSpeakers > 0 ? Math.max(0, Math.min(1,
       (fixedExperienced + expPool - expectedJuryExp) / eligibleSpeakers)) : 0;
@@ -499,7 +508,8 @@
     const options = slots.map(role => candidates.filter(item =>
       (item.sourceRoom === rootId || item.sourceRoom === role.room.id) && item.size <= role.need
     ).sort((a, b) => role.slot === 'jury'
-      ? Number(b.possibleJury) - Number(a.possibleJury) || b.size - a.size
+      ? Number(b.possibleJury) - Number(a.possibleJury)
+        || (b.possibleJury ? 0 : b.exp - a.exp) || b.size - a.size
       : b.size - a.size));
     const used = new Set(), chosen = [];
     const noSolution = new Set();
@@ -528,23 +538,29 @@
     }
     function recordPlan() {
       const results = new Map();
-      let preference = 0, penalty = 0;
+      let preference = 0, experiencedJury = 0, penalty = 0;
       for (const room of roomList) {
         const picks = chosen.filter(pick => pick.room.id === room.id).map(({ item, slot }) => ({ item, slot }));
         const exp = teamSlots(room).map(slot => getSlotRecords(room)[slot].exp +
           picks.filter(pick => pick.slot === slot).reduce((n, pick) => n + pick.item.exp, 0));
         const juryPreferred = picks.filter(pick => pick.slot === 'jury' && pick.item.possibleJury)
           .reduce((n, pick) => n + pick.item.size, 0);
+        const juryExperienced = picks.filter(pick => pick.slot === 'jury' && !pick.item.possibleJury)
+          .reduce((n, pick) => n + pick.item.exp, 0);
         preference += juryPreferred;
+        experiencedJury += juryExperienced;
         penalty += teamBalancePenalty(room, exp, globalRate);
-        results.set(room.id, { complete: true, picks, preference: juryPreferred, penalty: 0, exp });
+        results.set(room.id, { complete: true, picks, preference: juryPreferred,
+          experiencedJury: juryExperienced, penalty: 0, exp });
       }
       const rates = roomList.flatMap(room => results.get(room.id).exp.map(n => n / seatsPerTeam(room)));
       penalty += 5 * rates.reduce((n, rate) => n + (rate - globalRate) ** 2, 0);
-      const candidatePlan = { results, completed: roomList.slice(), juryPreference: preference, penalty };
+      const candidatePlan = { results, completed: roomList.slice(), juryPreference: preference,
+        juryExperienced: experiencedJury, penalty };
       if (!best || preference > best.juryPreference ||
-        (preference === best.juryPreference && (penalty < best.penalty - 1e-9 ||
-        (Math.abs(penalty - best.penalty) < 1e-9 && Math.random() < 0.5)))) best = candidatePlan;
+        (preference === best.juryPreference && (experiencedJury > best.juryExperienced ||
+        (experiencedJury === best.juryExperienced && (penalty < best.penalty - 1e-9 ||
+        (Math.abs(penalty - best.penalty) < 1e-9 && Math.random() < 0.5)))))) best = candidatePlan;
     }
     function search(roleIndex, remaining, offset) {
       if (outOfBudget()) {
@@ -584,6 +600,81 @@
     return { plan: best, limitReached };
   }
 
+  // A locally excellent room plan can still consume experienced speakers
+  // needed in another room's jury. Improve the completed global plan *before*
+  // committing any moves: exchange equal-sized groups only, respect origins
+  // and manual occupants, and never reduce the volunteer-jury count.
+  function improveJointJuryPriority(plan, roomList, globalRate) {
+    if (!plan || plan.completed.length !== roomList.length || roomList.length < 2) return plan;
+    const results = new Map([...plan.results].map(([id, r]) =>
+      [id, { ...r, picks: r.picks.slice() }]));
+    const candidates = new Map();
+    for (const room of roomList) for (const item of candidatesFor(room, true))
+      if (!candidates.has(item.name)) candidates.set(item.name, item);
+    const locations = () => {
+      const places = new Map();
+      for (const room of roomList) for (let i = 0; i < results.get(room.id).picks.length; i++) {
+        const pick = results.get(room.id).picks[i];
+        places.set(pick.item.name, { room, index: i, pick });
+      }
+      return places;
+    };
+    const legal = (item, room) => item.sourceRoom === rootId || item.sourceRoom === room.id;
+    const score = item => [item.possibleJury ? item.size : 0,
+      item.possibleJury ? 0 : item.exp];
+    const scoreDelta = (newItem, oldItem) => {
+      const a = score(newItem), b = score(oldItem);
+      return [a[0] - b[0], a[1] - b[1]];
+    };
+    const better = (a, b) => a[0] > b[0] || (a[0] === b[0] && a[1] > b[1]);
+    const positive = value => better(value, [0, 0]);
+    const maxChanges = roomList.reduce((n, r) => n + r.juryCount, 0);
+    for (let change = 0; change < maxChanges * 2; change++) {
+      const placed = locations();
+      let best = null;
+      for (const juryRoom of roomList) {
+        const picks = results.get(juryRoom.id).picks;
+        for (let j = 0; j < picks.length; j++) {
+          const old = picks[j];
+          if (old.slot !== 'jury') continue;
+          for (const next of candidates.values()) {
+            if (next.name === old.item.name || next.size !== old.item.size || !legal(next, juryRoom)) continue;
+            const changeScore = scoreDelta(next, old.item);
+            if (!positive(changeScore) || (best && !better(changeScore, best.changeScore))) continue;
+            const source = placed.get(next.name);
+            // A speaker can trade places with the jury member only if the
+            // former jury member is allowed in the speaker's original room.
+            if (source && (source.pick.slot === 'jury' || !legal(old.item, source.room))) continue;
+            best = { juryRoom, j, old, next, source, changeScore };
+          }
+        }
+      }
+      if (!best) break;
+      results.get(best.juryRoom.id).picks[best.j] = { item: best.next, slot: 'jury' };
+      if (best.source) {
+        results.get(best.source.room.id).picks[best.source.index] =
+          { item: best.old.item, slot: best.source.pick.slot };
+      }
+    }
+    let juryPreference = 0, juryExperienced = 0, penalty = 0;
+    for (const room of roomList) {
+      const result = results.get(room.id);
+      result.preference = result.picks.filter(p => p.slot === 'jury' && p.item.possibleJury)
+        .reduce((n, p) => n + p.item.size, 0);
+      result.experiencedJury = result.picks.filter(p => p.slot === 'jury' && !p.item.possibleJury)
+        .reduce((n, p) => n + p.item.exp, 0);
+      result.exp = teamSlots(room).map(slot => getSlotRecords(room)[slot].exp +
+        result.picks.filter(p => p.slot === slot).reduce((n, p) => n + p.item.exp, 0));
+      result.penalty = teamBalancePenalty(room, result.exp, globalRate);
+      juryPreference += result.preference;
+      juryExperienced += result.experiencedJury;
+      penalty += result.penalty;
+    }
+    const rates = roomList.flatMap(room => results.get(room.id).exp.map(n => n / seatsPerTeam(room)));
+    penalty += 5 * rates.reduce((n, rate) => n + (rate - globalRate) ** 2, 0);
+    return { ...plan, results, juryPreference, juryExperienced, penalty };
+  }
+
   function distribute(mode, roomId = null) {
     const roomList = roomId ? state.rooms.filter(room => room.id === roomId) : state.rooms;
     const roomOnly = mode === 'rooms';
@@ -619,17 +710,20 @@
       }
       const completed = roomList.filter(room => results.get(room.id).complete);
       const juryPreference = completed.reduce((n, room) => n + results.get(room.id).preference, 0);
+      const juryExperienced = completed.reduce((n, room) => n + (results.get(room.id).experiencedJury || 0), 0);
       const rates = completed.flatMap(room => teamSlots(room).map((slot, i) =>
         (results.get(room.id).exp || teamSlots(room).map(id => getSlotRecords(room)[id].exp))[i] / seatsPerTeam(room)));
       const acrossRooms = rates.reduce((n, rate) => n + (rate - globalRate) ** 2, 0);
       const penalty = completed.reduce((n, room) => n + results.get(room.id).penalty, 0) + 5 * acrossRooms;
-      const candidatePlan = { results, completed, juryPreference, penalty };
+      const candidatePlan = { results, completed, juryPreference, juryExperienced, penalty };
       if (!best || completed.length > best.completed.length
         || (completed.length === best.completed.length && juryPreference > best.juryPreference)
         || (completed.length === best.completed.length && juryPreference === best.juryPreference
-          && penalty < best.penalty - 1e-9)
+          && juryExperienced > best.juryExperienced)
         || (completed.length === best.completed.length && juryPreference === best.juryPreference
-          && Math.abs(penalty - best.penalty) < 1e-9 && Math.random() < 0.5)) best = candidatePlan;
+          && juryExperienced === best.juryExperienced
+          && (penalty < best.penalty - 1e-9
+            || (Math.abs(penalty - best.penalty) < 1e-9 && Math.random() < 0.5)))) best = candidatePlan;
     }
     // Unlike random room permutations, the joint fallback can undo earlier
     // room choices to locate a globally possible complete allocation.
@@ -640,6 +734,7 @@
       else searchLimitReached = joint.limitReached;
     }
     if (!best) return;
+    best = improveJointJuryPriority(best, roomList, globalRate);
     // The allocation is transactional: reject an inconsistent candidate plan
     // before moving even a single participant. Manual occupants stay fixed.
     const newlyPlaced = new Set();

@@ -1,3 +1,36 @@
+# Änderungen – Debattenplaner v1.5 (28. Oktober 2026)
+
+## Wichtigste Änderung: Verbindliche Jurypriorität
+
+Bei jeder automatischen Einteilung gelten für noch zu besetzende Juryplätze diese Prioritäten, in dieser Reihenfolge:
+
+1. **Vorgemerkte Personen aus „Mögliche Jury“**, unabhängig von deren Erfahrung.
+2. **Erfahrene Teilnehmer**, die sich nicht freiwillig für die Jury gemeldet haben.
+3. **Unerfahrene Teilnehmer ohne Juryvormerkung**, nur soweit andernfalls Juryplätze frei bleiben würden.
+
+Der Erfahrungsausgleich bei Regierung, Opposition und BPS-Teams folgt **erst danach**. Er darf nicht bewirken, dass ein Anfänger ohne Juryvormerkung anstelle eines verfügbaren erfahrenen Teilnehmers als Juror eingesetzt wird.
+
+Die Priorität ist in der dynamischen Ein-Raum-Verteilung, beim Vergleich alternativer Verteilungen, in der gemeinsamen Mehrraum-Suche und in einem zusätzlichen **raumübergreifenden Abgleich** berücksichtigt. Der Abgleich tauscht nur gleich große, erlaubte Teilnehmergruppen aus. Dadurch kann er zum Beispiel einen erfahrenen Redner aus Raum A mit einem unfreiwilligen Anfängerjuror aus Raum B tauschen, sofern beide Zuweisungen zulässig bleiben.
+
+## Unverändert
+
+- Bereits manuell besetzte Plätze bleiben fest; eine manuell gesetzte unerfahrene Jurorin oder ein unerfahrener Juror wird nicht automatisch ersetzt.
+- Vorhandene Teilnehmergruppen bleiben bei der automatischen Einteilung zusammen. Sind Gruppen oder bereits manuelle Plätze bindend, kann der ideale Jury-Ausgleich unmöglich sein.
+- OPD/BPS, Team-Erfahrungsausgleich, Juryplatzanzahl, freie Reden, Maus- und Touch-Drag-and-drop, das Originaldesign, Dunkelmodus, GitHub-Pages- und Offline-Unterstützung.
+- Keine Speicherung, kein Server, keine zusätzliche Bibliothek. Der Verweis auf das ursprüngliche GitHub-Projekt bleibt erhalten.
+
+## Prüfung
+
+- **17 von 17 gezielten Jury- und Grenzfalltests** bestanden, einschließlich knapper erfahrener Juroren, Anfänger-Freiwilliger, manuell gesetzter Juryplätze und mehrerer Räume. Gegenüber v1.4 zeigte insbesondere der raumübergreifende Fall ein zuvor falsches Verhalten.
+- **35 von 35 zufälligen Fällen** mit OPD und BPS und ein bis drei Räumen bestanden: Pflichtplätze, korrekte Jurypriorität und Teilnehmerintegrität.
+- **16 von 16 Browser-Bedienungstests** bestanden: Finger- und Maus-Drag-and-drop, Gruppen, Klickzuweisung, Sprache und Dunkelmodus.
+- **4 von 4 100-Personen-Szenarien** bestanden, darunter OPD, BPS, Gruppen und manuelle Belegungen. Keine vermissten oder doppelten Teilnehmer.
+- Überfüllte manuelle Regierung wird weiterhin abgefangen. JavaScript-Syntaxprüfung erfolgreich.
+
+**Grenzen:** Der Testbrowser verwendete Chromium und den identischen lokal geladenen Code; ein echter `file://`-Doppelklick und reale Android-/iOS-Geräte wurden nicht getestet. Bei schwierigen Teilnehmergruppen kann die auf Rechenzeit begrenzte Suche weiterhin unvollständige Ergebnisse liefern. Die lexikografische Juryregel ist daher als Prioritätsziel unter machbaren und zulässigen Belegungen zu verstehen, nicht als Übersteuerung manuell gesetzter Plätze oder unteilbarer Gruppen.
+
+---
+
 # Änderungen – Debattenplaner v1.4 (28. Oktober 2026)
 
 ## Ziel
