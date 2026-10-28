@@ -998,4 +998,170 @@
     app.querySelectorAll('.slot.over,.party.merge-target,.member.dragging')
       .forEach(el => el.classList.remove('over', 'merge-target', 'dragging'));
   });
+
+  // v1.4: Touch/Pen dragging. HTML drag events work for mice, but are not
+  // consistently dispatched for touch input (notably on iOS). A brief hold
+  // activates a separate pointer-driven drag; a normal tap stays a tap.
+  const touchHoldMs = 350;
+  const touchMoveTolerance = 12;
+  let touchDrag = null;
+  let suppressedTouchClick = null;
+
+  function clearDropHighlights() {
+    app.querySelectorAll('.slot.over,.party.merge-target')
+      .forEach(el => el.classList.remove('over', 'merge-target'));
+  }
+
+  function findTouchTarget(x, y, name) {
+    const hit = document.elementFromPoint(x, y);
+    const slot = hit?.closest('.slot[data-room][data-slot]');
+    if (!slot) return null;
+    const party = hit.closest('[data-party]');
+    const merge = party && rootOf(party.dataset.party) !== rootOf(name) ? party : null;
+    return { slot, merge };
+  }
+
+  function positionTouchGhost(drag) {
+    if (!drag.ghost) return;
+    drag.ghost.style.left = `${drag.x}px`;
+    drag.ghost.style.top = `${drag.y - 12}px`;
+  }
+
+  function markTouchTarget(drag) {
+    clearDropHighlights();
+    drag.target = findTouchTarget(drag.x, drag.y, drag.name);
+    if (drag.target?.merge) drag.target.merge.classList.add('merge-target');
+    else drag.target?.slot.classList.add('over');
+  }
+
+  function touchAutoScroll(drag) {
+    // Horizontally scroll long OPD/BPS tables under the held participant.
+    const edge = 48;
+    const hit = document.elementFromPoint(drag.x, drag.y);
+    const board = hit?.closest('.board');
+    let scrolled = false;
+    if (board && board.scrollWidth > board.clientWidth) {
+      const r = board.getBoundingClientRect();
+      const left = drag.x - r.left, right = r.right - drag.x;
+      const delta = left < edge ? -14 : right < edge ? 14 : 0;
+      if (delta) {
+        const before = board.scrollLeft;
+        board.scrollLeft += delta;
+        scrolled = board.scrollLeft !== before;
+      }
+    }
+    // Also allow dragging between the global list and far-away rooms.
+    const height = window.innerHeight;
+    const dy = drag.y < edge ? -12 : drag.y > height - edge ? 12 : 0;
+    if (dy) {
+      const before = window.scrollY;
+      window.scrollBy(0, dy);
+      scrolled ||= window.scrollY !== before;
+    }
+    if (scrolled) markTouchTarget(drag);
+    if (touchDrag === drag && drag.active)
+      drag.frame = window.requestAnimationFrame(() => touchAutoScroll(drag));
+  }
+
+  function activateTouchDrag(drag) {
+    if (touchDrag !== drag || drag.active || !state.members[drag.name]) return;
+    drag.active = true;
+    drag.source.classList.add('dragging');
+    const preview = document.createElement('div');
+    preview.className = 'member touch-drag-ghost' + (state.members[drag.name].experienced ? '' : ' new');
+    preview.textContent = drag.name;
+    preview.setAttribute('aria-hidden', 'true');
+    document.body.append(preview);
+    drag.ghost = preview;
+    positionTouchGhost(drag);
+    markTouchTarget(drag);
+    drag.frame = window.requestAnimationFrame(() => touchAutoScroll(drag));
+    if (navigator.vibrate) navigator.vibrate(12);
+  }
+
+  function finishTouchDrag(drag, commit) {
+    if (touchDrag !== drag) return;
+    touchDrag = null;
+    if (drag.timer) window.clearTimeout(drag.timer);
+    if (drag.frame) window.cancelAnimationFrame(drag.frame);
+    drag.source.classList.remove('dragging');
+    drag.ghost?.remove();
+    clearDropHighlights();
+    if (!drag.active) return;
+    suppressedTouchClick = { until: Date.now() + 450, x: drag.x, y: drag.y };
+    // No move? A long press alone should not unexpectedly reassign someone.
+    if (!commit || !drag.moved || !state.members[drag.name]) return;
+    const dest = findTouchTarget(drag.x, drag.y, drag.name);
+    if (!dest) return;
+    if (dest.merge) {
+      addChild(dest.merge.dataset.party, drag.name);
+    } else {
+      const slot = dest.slot;
+      const parties = [...slot.querySelectorAll(':scope > .members > [data-party]')]
+        .filter(el => el.dataset.party !== rootOf(drag.name));
+      let position = parties.length;
+      for (let i = 0; i < parties.length; i++) {
+        const rect = parties[i].getBoundingClientRect();
+        if (slot.dataset.room === rootId
+          ? (drag.y < rect.top || (drag.y <= rect.bottom && drag.x < rect.left + rect.width / 2))
+          : drag.y < rect.top + rect.height / 2) { position = i; break; }
+      }
+      moveSingleMember(drag.name, slot.dataset.room, slot.dataset.slot, position);
+    }
+    state.selected = null;
+    render();
+  }
+
+  app.addEventListener('pointerdown', event => {
+    if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
+    if (event.isPrimary === false || event.button !== 0) return;
+    const chip = event.target.closest('.member[data-member]');
+    if (!chip || event.target.closest('button') || touchDrag) return;
+    const drag = {
+      id: event.pointerId, source: chip, name: chip.dataset.member,
+      x: event.clientX, y: event.clientY,
+      startX: event.clientX, startY: event.clientY,
+      active: false, moved: false, timer: null, frame: null, ghost: null
+    };
+    touchDrag = drag;
+    drag.timer = window.setTimeout(() => activateTouchDrag(drag), touchHoldMs);
+  });
+  app.addEventListener('pointermove', event => {
+    const drag = touchDrag;
+    if (!drag || event.pointerId !== drag.id) return;
+    drag.x = event.clientX;
+    drag.y = event.clientY;
+    const distance = Math.hypot(drag.x - drag.startX, drag.y - drag.startY);
+    if (!drag.active) {
+      if (distance > touchMoveTolerance) finishTouchDrag(drag, false);
+      return;
+    }
+    event.preventDefault();
+    if (distance > touchMoveTolerance) drag.moved = true;
+    positionTouchGhost(drag);
+    markTouchTarget(drag);
+  });
+  app.addEventListener('pointerup', event => {
+    if (touchDrag && event.pointerId === touchDrag.id)
+      finishTouchDrag(touchDrag, true);
+  });
+  app.addEventListener('pointercancel', event => {
+    if (touchDrag && event.pointerId === touchDrag.id)
+      finishTouchDrag(touchDrag, false);
+  });
+  window.addEventListener('blur', () => {
+    if (touchDrag) finishTouchDrag(touchDrag, false);
+  });
+  // Prevent long-press context menus and a synthetic click after touch drop.
+  app.addEventListener('contextmenu', event => {
+    if (touchDrag?.active && event.target.closest('.member')) event.preventDefault();
+  });
+  app.addEventListener('click', event => {
+    const blocked = suppressedTouchClick;
+    if (!blocked || Date.now() >= blocked.until) return;
+    if (Math.hypot(event.clientX - blocked.x, event.clientY - blocked.y) > 20) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    suppressedTouchClick = null;
+  }, true);
 })();

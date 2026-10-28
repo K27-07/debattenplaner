@@ -159,3 +159,17 @@ button:disabled { opacity: .36; cursor: default; }
 .board .slot { position: relative; }
 .slot-controls .place-btn { position: absolute; right: 6px; bottom: 5px; z-index: 2; box-shadow: var(--shadow); }
 .selected-hint { position: fixed; left: 16px; bottom: 12px; max-width: min(520px, calc(100vw - 32px)); z-index: 50; margin: 0; box-shadow: var(--shadow); }
+
+/* v1.4: finger-driven drag-and-drop; regular taps and mouse drag stay intact.
+   Applying touch-action only on member chips prevents mobile browsers from
+   hijacking an active finger drag as page scrolling. Scroll from surrounding
+   slot/board areas instead. */
+@media (pointer: coarse) {
+  .member { touch-action: none; -webkit-touch-callout: none; }
+}
+.touch-drag-ghost {
+  position: fixed; z-index: 9999; pointer-events: none; margin: 0;
+  transform: translate(-50%, -100%); width: max-content; max-width: 72vw;
+  overflow: hidden; text-overflow: ellipsis; box-shadow: var(--shadow);
+  opacity: .95; outline: 2px solid var(--focus);
+}

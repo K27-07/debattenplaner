@@ -1,3 +1,35 @@
+# Änderungen – Debattenplaner v1.4 (28. Oktober 2026)
+
+## Ziel
+
+Fingerbedienung für Drag-and-drop ergänzen, ohne das ursprüngliche Design, Mausbedienung oder die automatische Verteilungslogik zu verändern.
+
+## Neu und verbessert
+
+1. **Touch-Drag-and-drop:** Nach ungefähr 350 ms gedrückthalten lässt sich ein Teilnehmer mit dem Finger oder unterstützten Stift verschieben; ein gewöhnlicher kurzer Tipp behält seine bisherige Funktion.
+2. **Zuweisen und Gruppieren:** Auf eine Team-/Juryspalte ziehen weist genau die gewählte Person zu. Auf einen anderen Teilnehmer ziehen bildet wie am Desktop eine Gruppe.
+3. **Sichtbare Rückmeldung:** Der gezogene Name erscheint als schwebender Chip; die Zielspalte bzw. die Zielgruppe wird markiert.
+4. **Automatisches Scrollen:** Am Rand einer breiten Teamtabelle scrollt sie seitlich; am oberen oder unteren Bildschirmrand scrollt die Seite vertikal. Dies erleichtert die Arbeit mit mehreren Räumen am Smartphone.
+5. **Sicherer Abbruch:** Loslassen außerhalb eines gültigen Ziels, Touch-Abbruch oder Verlassen des Browserfensters verschiebt niemanden. Langes Drücken ohne Bewegung ebenso nicht.
+6. **Schnelle Fingertipps:** Ein versehentlicher Klick unmittelbar nach dem Ziehen wird gezielt unterdrückt, ohne das sofortige Antippen anderer Teilnehmer zu blockieren.
+
+## Unverändert
+
+- Design und bestehende Dateistruktur, direkter Offline-Start, GitHub-Pages-Eignung und ursprünglicher GitHub-Verweis.
+- OPD-/BPS-Verteilung, Jurypriorität, Erfahrungsausgleich, manuelle Einzelverschiebung, Gruppenverwaltung, Dunkelmodus.
+- Keine Datenbank, kein Server, keine zusätzliche Bibliothek und keine Datenspeicherung.
+
+## Prüfung
+
+- 15 gezielte Touch-/Maus-Browsertests in Chromium bestanden.
+- Horizontales Scrollen innerhalb der Raumtabelle und vertikales Scrollen zwischen Räumen erfolgreich simuliert.
+- Drei bestehende komplexe Tests mit jeweils 100 Teilnehmern bestanden; alle Teilnehmer genau einmal zugeordnet, keine Gruppenteilung.
+- JavaScript-Syntaxprüfung erfolgreich.
+
+**Grenzen:** Die Tests erfolgten mit simuliertem Touch in Chromium. Reale Android-/iOS-Geräte, Firefox und Safari sowie der direkte `file://`-Aufruf konnten in dieser Umgebung nicht vollständig geprüft werden. Das automatische Scrollen startet beim Ziehen am Rand; zum normalen Scrollen auf Touchgeräten möglichst außerhalb der Teilnehmerchips wischen.
+
+---
+
 # Änderungen – Debattenplaner v1.3 (27. Oktober 2026)
 
 ## Ziel

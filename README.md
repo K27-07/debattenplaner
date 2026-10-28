@@ -1,6 +1,6 @@
 # Debattenplaner – Offline-Version im Originaldesign
 
-**Version 1.3 – 27. Oktober 2026:** Stabilitätsupdate für Gruppenbedienung, manuelle Einzelverschiebung, abgesicherte automatische Zuweisung und begrenzte Mehrraum-Suche. Jurypriorität und Erfahrungsausgleich bleiben erhalten.
+**Version 1.4 – 28. Oktober 2026:** Touch-Update: Teilnehmer lassen sich nun auch mit dem Finger per längerem Gedrückthalten ziehen, auf Team- und Juryplätze setzen und zu Gruppen zusammenführen. Die Stabilitätsverbesserungen aus v1.3 sowie Jurypriorität und Erfahrungsausgleich bleiben erhalten.
 
 Diese Version orientiert sich bei **Aufbau und Aussehen an der ursprünglich bereitgestellten Vue-/Vuetify-Anwendung**: einfache obere Leiste, die unzugeordneten Teilnehmenden und mögliche Jury am Anfang, Raum-Einstellungen links, weiße runde Debattenfelder, Material-Symbole und kleine graue bzw. grüne Teilnehmer-Chips. Die Oberfläche wurde ohne Vue-Bibliotheken für die lokale Nutzung nachgebildet. Kleine Unterschiede zu Vuetify, beispielsweise bei den Schriftarten oder Icons, sind möglich.
 
@@ -18,7 +18,9 @@ Diese Version orientiert sich bei **Aufbau und Aussehen an der ursprünglich ber
 - Das **Schul-Symbol** neben dem Eingabefeld markiert einen neuen Teilnehmenden als unerfahren (grün); standardmäßig ist er erfahren.
 - Teilnehmer **mit der Maus ziehen** und in einem Raum oder Platz ablegen; auf einen anderen Teilnehmer ziehen, um beide zu gruppieren. Bei einer manuellen Platzzuweisung wird **nur die gezogene Person** umgesetzt, auch wenn sie die bisherige Gruppenleitung war.
 - Gruppen per **Doppelklick** auf einen Teilnehmer in der Gruppe auflösen. Der normale Klick zur Auswahl verändert die Position der Teilnehmerchips nicht mehr. Beim Auflösen bleiben alle bisherigen Gruppenmitglieder in der Liste erhalten.
-- Auf Touchgeräten bzw. alternativ ohne Ziehen: Teilnehmer antippen, anschließend im gewünschten Feld **„Hier zuweisen“** wählen. Zwei Teilnehmer nacheinander antippen, um sie zu gruppieren.
+- **Auf Smartphones/Tablets:** Einen Teilnehmer etwa **0,35 Sekunden gedrückt halten** und anschließend mit dem Finger auf ein Team, einen Juryplatz oder einen anderen Teilnehmer ziehen. Die Position wird markiert und eine schwebende Vorschau angezeigt. Am Rand scrollt die Ansicht bei Bedarf automatisch horizontal zwischen Teamspalten oder vertikal zwischen Räumen. Loslassen weist zu bzw. bildet eine Gruppe. Ein Ziehen ins Leere oder eine abgebrochene Geste ändert nichts.
+- **Ohne Ziehen:** Teilnehmer kurz antippen und anschließend im gewünschten Feld **„Hier zuweisen“** wählen. Zwei Teilnehmer nacheinander antippen, um sie zu gruppieren. Normales Antippen bleibt unverändert; ein langes Drücken ohne anschließende Bewegung verschiebt niemanden.
+- **Hinweis zum Scrollen:** Auf Touchgeräten zum normalen Scrollen bevorzugt die freien Flächen zwischen bzw. neben den Teilnehmerchips verwenden. Die Chips selbst sind für längeres Gedrückthalten und Ziehen reserviert.
 - Die grünen Symbole in „Unsortiert“ dienen zum Einsammeln und automatischen Verteilen. Sobald mehrere Räume existieren, kann auch auf Räume verteilt werden.
 - **OPD:** Regierung und Opposition bekommen jeweils die eingestellte Gruppengröße (3–6). Die Jury erhält die eingestellte Anzahl (1–4). **Alle möglichen Jurorinnen und Juroren haben Vorrang** vor nicht vorgemerkten Personen; nur wenn mehr Personen vorgemerkt sind als Plätze vorhanden sind, kommen die übrigen als Redner in Betracht. Sind zu wenige vorgemerkt, werden Juryplätze mit anderen Personen ergänzt. Anschließend werden erfahrene und unerfahrene Redner möglichst gleichmäßig auf die Teams verteilt; übrige Personen kommen in die **Freien Reden**.
 - **BPS:** Vier Zweierteams und die eingestellte Jury müssen vollständig besetzt werden. Die Erfahrungen werden möglichst gleichmäßig auf alle vier Teams verteilt. BPS besitzt keine freien Reden; überzählige Personen bleiben unsortiert.
@@ -51,3 +53,7 @@ Der ursprüngliche Vue-Quellcode ist in dieser Offline-Version **nicht enthalten
 ## Prüfungen
 
 Für **v1.3** wurden 12 Chromium-Bedienungstests und 7 zusätzliche Browser-Smoke-Tests erfolgreich abgeschlossen; ferner die bisherigen 12 Logik-Regressionsszenarien mit 100 Wiederholungen des komplexen Zwei-Räume-Falls und 47 neue zufällige Gruppenkonstellationen im Vergleich zu einer unabhängigen Machbarkeitsprüfung. Die JavaScript-Syntaxprüfung war erfolgreich. Die direkte `file://`-Navigation wird in der Testumgebung administrativ blockiert; die Anwendung wurde daher durch Laden derselben lokalen HTML-, CSS- und JavaScript-Dateien in Chromium geprüft. Nicht alle Browser- und Gerätevarianten sind abgedeckt.
+
+### Tests zu v1.4
+
+15 gezielte praktische Chromium-Prüfungen für Touch- und Mausbedienung bestanden, dazu horizontales und vertikales automatisches Scrollen, Abbruch ohne Datenänderung sowie drei 100-Personen-Regressionstests (OPD, BPS und Mischbetrieb). Einzelheiten stehen in `PRUEFBERICHT_v1.4.md`. Eine echte iOS-/Android-Geräteprüfung steht noch aus.
