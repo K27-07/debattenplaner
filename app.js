@@ -28,7 +28,7 @@
       opd: 'Offene Parlamentarische Debatte', bpd: 'British Parliamentary Style',
       room: 'Raum', roomName: 'Raumname', groupSize: 'Teamgröße', juryCount: 'Juryplätze', format: 'Debattenformat',
       addRoom: 'Raum hinzufügen', add: 'Hinzufügen', name: 'Name', experienced: 'Erfahren', inexperienced: 'Unerfahren',
-      remove: 'Entfernen', ungroup: 'Gruppe auflösen (Doppelklick)',
+      remove: 'Entfernen', ungroup: 'Gruppe auflösen (Doppelklick oder Umschalt+Eingabe)',
       retrieveAll: 'Alle einsammeln', retrieveRoom: 'Im Raum einsammeln',
       distributeAll: 'Auf Teams verteilen', distributeRooms: 'Auf Räume verteilen', distributeRoom: 'Im Raum verteilen',
       moveUp: 'Raum nach oben', moveDown: 'Raum nach unten', removeRoom: 'Raum entfernen',
@@ -42,7 +42,8 @@
       partial: 'Raum {room}: {reason}',
       overfilled: 'Raum {room}: {slot} ist überfüllt ({current} statt höchstens {maximum}). Bitte die manuelle Zuweisung korrigieren.',
       searchLimit: 'Die Suche nach einer vollständigen Einteilung hat ihre Rechengrenze erreicht. Möglicherweise gibt es eine Lösung. Bitte Gruppierung oder Raumgrößen anpassen und erneut versuchen.',
-      invalidPlan: 'Interner Plausibilitätsfehler: Die errechnete Einteilung wurde nicht übernommen. Keine Änderungen vorgenommen.'
+      invalidPlan: 'Interner Plausibilitätsfehler: Die errechnete Einteilung wurde nicht übernommen. Keine Änderungen vorgenommen.',
+      juryPriorityConflict: 'Die Jurypriorität kann mit den vorhandenen Gruppierungen oder Raumvorbelegungen nicht vollständig eingehalten werden. Keine automatische Einteilung übernommen. Bitte Gruppen oder Vorbelegungen anpassen.'
     },
     en: {
       title: 'Debate Planner', subtitle: 'No installation · Offline',
@@ -54,7 +55,7 @@
       opd: 'Open Parliamentary Debate', bpd: 'British Parliamentary Style',
       room: 'Room', roomName: 'Room name', groupSize: 'Team size', juryCount: 'Jury seats', format: 'Debate format',
       addRoom: 'Add room', add: 'Add', name: 'Name', experienced: 'Experienced', inexperienced: 'Inexperienced',
-      remove: 'Remove', ungroup: 'Ungroup (double-click)',
+      remove: 'Remove', ungroup: 'Ungroup (double-click or Shift+Enter)',
       retrieveAll: 'Collect everyone', retrieveRoom: 'Collect room members',
       distributeAll: 'Distribute to teams', distributeRooms: 'Distribute to rooms', distributeRoom: 'Distribute in room',
       moveUp: 'Move room up', moveDown: 'Move room down', removeRoom: 'Remove room',
@@ -68,7 +69,8 @@
       partial: 'Room {room}: {reason}',
       overfilled: 'Room {room}: {slot} is overfilled ({current}; maximum {maximum}). Please adjust manual assignments.',
       searchLimit: 'The search for a complete seating hit its computational limit. A valid seating may still exist. Adjust groups or room sizes and retry.',
-      invalidPlan: 'Internal validation failed: the proposed seating was not applied. No changes made.'
+      invalidPlan: 'Internal validation failed: the proposed seating was not applied. No changes made.',
+      juryPriorityConflict: 'Jury priority cannot be fully respected with the current groups or room reservations. No automatic seating was applied. Please adjust groups or preassignments.'
     }
   };
 
@@ -720,7 +722,7 @@
     return { ...plan, results, juryPreference, juryExperienced, penalty };
   }
 
-  function distribute(mode, roomId = null) {
+  function distributeCore(mode, roomId = null) {
     const roomList = roomId ? state.rooms.filter(room => room.id === roomId) : state.rooms;
     const roomOnly = mode === 'rooms';
     if (!roomList.length) return;
@@ -747,7 +749,7 @@
       const used = new Set();
       const results = new Map();
       for (const room of order) {
-        const candidates = candidatesFor(room, !roomId || state.rooms.length === 1)
+        const candidates = candidatesFor(room, true)
           .filter(item => !used.has(item.name));
         const result = findCompleteRoomAllocation(room, candidates, globalRate);
         results.set(room.id, result);
@@ -820,7 +822,7 @@
     const completed = best.completed;
     if (completed.length) {
       if (roomOnly) {
-        if (!issues.length) for (const slot of ['unsorted', 'unsortedJury']) {
+        if (!roomId && !issues.length) for (const slot of ['unsorted', 'unsortedJury']) {
           for (const name of listNames(rootId, slot)) {
             const room = completed.reduce((first, current) =>
               count(current.id, 'unsorted') + count(current.id, 'unsortedJury')
@@ -838,7 +840,7 @@
         // Leftover potential jurors are speakers only after all jury seats in
         // the planned debates have been filled. An incomplete debate retains
         // access to the global pool for the next distribution attempt.
-        if (opdRooms.length && !issues.length) {
+        if (opdRooms.length && !roomId && !issues.length) {
           for (const slot of ['unsorted', 'unsortedJury']) {
             for (const name of listNames(rootId, slot)) {
               const room = opdRooms.reduce((first, current) =>
@@ -850,6 +852,129 @@
       }
     }
     state.notice = [...(completed.length ? [t('completion').replace('{n}', String(completed.length))] : [t('noComplete')]), ...issues].join(' ');
+  }
+
+  // v1.8: Jury priority takes precedence over preserving a group. First plan
+  // normally (the group stays together). If that would leave available volunteer
+  // jurors out of the jury, try the smallest necessary group dissolutions and
+  // adopt a changed seating ONLY when it increases jury priority without losing
+  // fully seated rooms. All alternatives are made against copies of the state.
+  function poolSnapshot() {
+    return {
+      members: Object.fromEntries(Object.entries(state.members).map(([name, member]) =>
+        [name, { ...member, children: member.children.slice() }])),
+      lists: Object.fromEntries(Object.entries(state.lists).map(([key, names]) => [key, names.slice()])),
+      notice: state.notice
+    };
+  }
+  function restorePool(snapshot) {
+    state.members = Object.assign(Object.create(null),
+      Object.fromEntries(Object.entries(snapshot.members).map(([name, member]) =>
+        [name, { ...member, children: member.children.slice() }])));
+    state.lists = Object.assign(Object.create(null),
+      Object.fromEntries(Object.entries(snapshot.lists).map(([key, names]) => [key, names.slice()])));
+    state.notice = snapshot.notice;
+  }
+  function currentJuryScore(roomList) {
+    let volunteer = 0, experienced = 0, completed = 0;
+    for (const room of roomList) {
+      for (const root of listNames(room.id, 'jury')) {
+        for (const name of partyMembers(root)) {
+          const member = state.members[name];
+          if (member?.volunteeredJury) volunteer++;
+          else if (member?.experienced) experienced++;
+        }
+      }
+      if ([...teamSlots(room), 'jury'].every(slot => count(room.id, slot) ===
+          (slot === 'jury' ? Math.max(1, room.juryCount) : seatsPerTeam(room)))) completed++;
+    }
+    return { completed, volunteer, experienced };
+  }
+  function distribute(mode, roomId = null) {
+    const rooms = roomId ? state.rooms.filter(room => room.id === roomId) : state.rooms;
+    if (!rooms.length) return;
+    // Manual positions are not candidates and are never moved for jury priority.
+    const roots = new Set();
+    for (const room of rooms) for (const source of [rootId, room.id])
+      for (const slot of ['unsortedJury', 'unsorted'])
+        for (const name of listNames(source, slot)) if (partySize(name) > 1) roots.add(name);
+    if (!roots.size) { distributeCore(mode, roomId); return; }
+
+    const available = new Set();
+    for (const root of roots) for (const name of partyMembers(root)) available.add(name);
+    // Include single candidates as well: if they fill every available jury seat,
+    // there is no reason to dissolve any groups.
+    for (const room of rooms) for (const source of [rootId, room.id])
+      for (const slot of ['unsortedJury', 'unsorted'])
+        for (const name of listNames(source, slot)) for (const person of partyMembers(name)) available.add(person);
+    const seats = rooms.reduce((n, room) => n + Math.max(0,
+      room.juryCount - count(room.id, 'jury')), 0);
+    const initialScore = currentJuryScore(rooms);
+    const maxVolunteer = initialScore.volunteer + Math.min(seats,
+      [...available].filter(name => state.members[name]?.volunteeredJury).length);
+    const maxExperienced = initialScore.experienced + Math.min(
+      Math.max(0, seats - (maxVolunteer - initialScore.volunteer)),
+      [...available].filter(name => !state.members[name]?.volunteeredJury && state.members[name]?.experienced).length);
+    const before = poolSnapshot();
+    distributeCore(mode, roomId);
+    let best = poolSnapshot();
+    let bestScore = currentJuryScore(rooms);
+    // Do not disturb intact groups if the strict jury priorities were already met.
+    if (bestScore.volunteer >= maxVolunteer && bestScore.experienced >= maxExperienced) return;
+
+    const candidates = [...roots].filter(root => partyMembers(root).some(name =>
+      state.members[name]?.volunteeredJury && bestScore.volunteer < maxVolunteer
+      || (!state.members[name]?.volunteeredJury && state.members[name]?.experienced
+          && bestScore.volunteer >= maxVolunteer && bestScore.experienced < maxExperienced)));
+    if (!candidates.length) {
+      if (bestScore.completed === rooms.length) {
+        restorePool(before);
+        state.notice = t('juryPriorityConflict');
+      }
+      return;
+    }
+    // Only separate as many groups as seem necessary. If the smallest set
+    // cannot yield a valid allocation, try all eligible groups as a fallback.
+    const needVolunteers = bestScore.volunteer < maxVolunteer;
+    const missing = needVolunteers ? maxVolunteer - bestScore.volunteer
+      : maxExperienced - bestScore.experienced;
+    const priorityMembers = root => partyMembers(root).filter(name =>
+      needVolunteers ? state.members[name].volunteeredJury
+        : !state.members[name].volunteeredJury && state.members[name].experienced).length;
+    const sorted = shuffle(candidates.slice()).sort((a, b) =>
+      priorityMembers(b) - priorityMembers(a));
+    const subset = [];
+    let freed = 0;
+    for (const root of sorted) {
+      if (freed >= missing) break;
+      subset.push(root);
+      freed += priorityMembers(root);
+    }
+    const trials = [
+      ...(candidates.length <= 5 ? candidates.map(name => [name]) : []),
+      ...(subset.length > 1 ? [subset] : candidates.length > 5 ? [subset] : []),
+      ...(subset.length !== candidates.length ? [candidates] : [])
+    ];
+    for (const splitRoots of trials) {
+      restorePool(before);
+      for (const root of splitRoots) if (state.members[root]?.children.length) unlink(root);
+      distributeCore(mode, roomId);
+      const score = currentJuryScore(rooms);
+      const better = score.completed >= bestScore.completed &&
+        (score.volunteer > bestScore.volunteer ||
+          (score.volunteer === bestScore.volunteer && score.experienced > bestScore.experienced));
+      if (better) { best = poolSnapshot(); bestScore = score; }
+      // The upper bound is reached, so additional group splits are unnecessary.
+      if (bestScore.volunteer >= maxVolunteer && bestScore.experienced >= maxExperienced) break;
+    }
+    // Do not silently report a completed debate that placed a lower-priority
+    // juror ahead of an available higher-priority candidate. Manual seats are
+    // exempt, as agreed; otherwise request an adjustment instead.
+    if (bestScore.completed === rooms.length &&
+        (bestScore.volunteer < maxVolunteer || bestScore.experienced < maxExperienced)) {
+      restorePool(before);
+      state.notice = t('juryPriorityConflict');
+    } else restorePool(best);
   }
 
   function count(room, slot) { return getList(room, slot).reduce((s, name) => s + partySize(name), 0); }
@@ -1084,9 +1209,18 @@
     render();
   });
   app.addEventListener('keydown', event => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
     const chip = event.target.closest('[data-member]');
-    if (chip && !event.target.closest('button')) { event.preventDefault(); chip.click(); }
+    if (!chip || event.target.closest('button')) return;
+    if (event.key === 'Enter' && event.shiftKey) {
+      event.preventDefault();
+      unlink(chip.dataset.member);
+      state.selected = null;
+      render();
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault(); chip.click();
+    }
   });
   app.addEventListener('dragstart', event => {
     const chip = event.target.closest('[data-member]');

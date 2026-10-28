@@ -1,3 +1,35 @@
+# Änderungen – Debattenplaner v1.8 (28. Oktober 2026)
+
+## Verbindliche Jurypriorität auch bei gemischten Gruppen
+
+1. **Freiwillige Juroren haben vor allen Nicht-Freiwilligen Vorrang**, unabhängig von ihrer Erfahrung.
+2. Fehlen Freiwillige, werden erfahrene Nicht-Freiwillige berücksichtigt; erst danach unerfahrene.
+3. Der Planer versucht zuerst, Teilnehmergruppen zusammenzulassen. Nur wenn damit eine verfügbare Person höherer Jurypriorität übergangen würde, prüft er alternative Planungen mit gezielter Gruppentrennung.
+4. Eine Trennung wird nur bei einer tatsächlichen Verbesserung der Jurybesetzung und ohne Verlust vollständig eingeteilter Räume übernommen. Bereits manuell besetzte Plätze werden respektiert.
+5. Wenn feste Raumzuweisungen eine Einteilung nach dieser Priorität verhindern, wird kein scheinbar korrektes Gesamtergebnis übernommen. Es erscheint eine Erklärung, dass Gruppen oder Vorbelegungen angepasst werden müssen.
+
+## Mehrraumverteilung
+
+- „Auf Teams verteilen“ verteilt global unsortierte Personen weiterhin automatisch über mehrere Räume und berücksichtigt dabei freiwillige Juroren, Erfahrungsbalance und manuelle Raumzuordnungen.
+- „Auf Räume verteilen“ bleibt als optionaler erster Schritt für die zweistufige Planung erhalten.
+- **„Im Raum verteilen“ funktioniert jetzt auch bei mehreren Räumen direkt mit global unsortierten Personen.** Die übrigen Personen bleiben für weitere Räume in der globalen Liste; sie werden bei einer lokalen Einteilung nicht ungefragt als freie Redner in den ausgewählten Raum verschoben.
+
+## Barrierefreiheit
+
+- Gruppen lassen sich neben dem bisherigen Maus-Doppelklick nun per **Umschalt+Eingabe** bei fokussiertem Teilnehmerchip auflösen; die Tastaturhilfe wird im Tooltip genannt.
+
+## Unverändert
+
+- Teamvollständigkeit, Erfahrungsausgleich zwischen Regierung und Opposition/BPS-Teams sowie zwischen Räumen, freie Reden, bereits manuell gesetzte Plätze.
+- Die vollständige v1.7-Touch-/Maussteuerung, das Originaldesign, die Farben und der Dunkelmodus.
+- Offline-Nutzung ohne Installation, ohne Datenbank, ohne externe Bibliotheken oder dauerhafte Speicherung; bisheriger Verweis auf das ursprüngliche GitHub-Projekt.
+
+## Prüfungen
+
+Siehe `PRUEFBERICHT_v1.8.md`: 50 Zufallsszenarien, zehn Wiederholungen des früheren Juryfehlers, ein 100-Personen-Mischgruppen-Stresstest, vier weitere 100-Personen-Konstellationen, direkte/ein- und zweistufige Raumverteilung, Tastaturtest, 15 Touch-/Mausprüfungen sowie Konfliktabbruch. Einschränkungen werden im Bericht erklärt.
+
+---
+
 # Änderungen – Debattenplaner v1.7 (28. Oktober 2026)
 
 ## Behobener Fehler: Jurybereitschaft nach Löschen eines Gruppenleiters
