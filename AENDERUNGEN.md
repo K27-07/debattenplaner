@@ -1,3 +1,34 @@
+# Änderungen – Debattenplaner v1.6 (28. Oktober 2026)
+
+## Behebung: Juryfreiwilligkeit bleibt eine eigene Information
+
+**Fehler aus v1.5:** Personen, die der Algorithmus nur wegen eines freien Juryplatzes als Juror eingeteilt hatte, gelangten bei „Alle einsammeln“, „Raum einsammeln“, Raumlöschen oder Debattenformatwechsel fälschlich in „Mögliche Jury“. Beim nächsten Verteilen erhielten sie dadurch einen unverdienten Vorrang.
+
+**Korrektur in v1.6:**
+
+1. Jede Person besitzt während der Sitzung ein separates Kennzeichen für die **ausdrücklich freiwillige** Jurybereitschaft. Die aktuelle Position im Debattenraum ändert dieses Kennzeichen nicht.
+2. Nur ein bewusster manueller Wechsel in die Liste „Mögliche Jury“ setzt die Vormerkung; ein bewusster manueller Wechsel nach „Unsortiert“ entfernt sie.
+3. „Alle einsammeln“, „Raum einsammeln“, Formatwechsel und Raumlöschen stellen die Zuordnung anhand der ursprünglichen Vormerkung wieder her, nicht anhand des zuletzt besetzten Juryplatzes.
+4. Der Verteilungsalgorithmus erkennt freiwillige Gruppen anhand der tatsächlich vorgemerkten Mitglieder. Freiwillige Anfänger behalten Vorrang vor erfahrenen Nicht-Freiwilligen; ohne freiwillige Juroren kommen erfahrene Personen zuerst.
+5. Beim Auflösen gemischter Gruppen in einer unsortierten Liste werden die einzelnen Teilnehmer entsprechend ihrer persönlichen Juryvormerkung auf beide Listen verteilt.
+
+## Bewusst unverändert
+
+- Die automatische Verteilung und die Gewichtung der Jurypriorität (freiwillig → erfahren → unerfahren) sowie der Team-Erfahrungsausgleich.
+- OPD/BPS, freie Reden, vollständige Besetzung, manuell festgelegte Plätze, Gruppenregeln und Suchgrenzen.
+- Drag-and-drop mit Maus und Touch, Originaldesign, Hell-/Dunkelmodus, Sprachwechsel und der Verweis auf HalbFettKaese.
+- Keine dauerhafte Datenspeicherung, keine externe Bibliothek, kein Installationsbedarf.
+
+## Prüfungen für v1.6
+
+- 12 gezielte automatisierte Szenarien: alle bestanden. Darunter wiederholtes Einteilen/Einsammeln, erfahrene und unerfahrene Freiwillige, manuell eingesetzte Juroren, ausdrückliches Abmelden, Formatwechsel, Raumlöschen, mehrere Räume und Gruppen.
+- 10 praktische UI-Prüfungen (Klickzuweisung, Rücknahme der Vormerkung, erneutes Verteilen): alle bestanden.
+- 15 praktische Maus-/Touchprüfungen unter Chromium: alle bestanden.
+- 4 aufwendige Verteilungen mit jeweils 100 Personen (OPD, BPS und gemischte Räume mit manuellen Plätzen): vollständig, ohne Teilnehmerverlust oder geteilte Gruppen.
+- JavaScript-Syntaxprüfung bestanden. Prüfdetails und Grenzen: `PRUEFBERICHT_v1.6.md`.
+
+---
+
 # Änderungen – Debattenplaner v1.5 (28. Oktober 2026)
 
 ## Wichtigste Änderung: Verbindliche Jurypriorität

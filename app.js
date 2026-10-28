@@ -117,7 +117,7 @@
     if (!base) return false;
     let name = base, num = 1;
     while (Object.hasOwn(state.members, name)) name = `${base} ${roman(++num)}.`;
-    state.members[name] = { experienced, children: [], parent: null, room: rootId, slot: 'unsorted' };
+    state.members[name] = { experienced, volunteeredJury: false, children: [], parent: null, room: rootId, slot: 'unsorted' };
     getList(rootId, 'unsorted').push(name);
     return true;
   }
@@ -145,11 +145,26 @@
     list.splice(Math.max(0, Math.min(list.length, index)), 0, name);
     return true;
   }
-  // Deliberate manual moves act on one person, even if that person currently
-  // leads a group. Automatic seating still moves the full group atomically.
+  // A participant's volunteered jury preference belongs to the participant,
+  // not to their current seat. Automatic allocation must never change it.
+  function partyMembers(name) {
+    const root = rootOf(name);
+    return state.members[root] ? [root, ...state.members[root].children] : [];
+  }
+  const isVoluntaryParty = name => partyMembers(name).every(n => state.members[n]?.volunteeredJury);
+  function returnPoolSlot(name) {
+    return isVoluntaryParty(name) ? 'unsortedJury' : 'unsorted';
+  }
+  // Only a user's explicit move to/from the candidate lists changes the
+  // registration. Moving to a debating team or jury seat keeps the choice.
+  // Manual moves act on one person, even if this person led a group.
   function moveSingleMember(name, room, slot, index = Infinity) {
     if (state.members[name]?.children.length) unlink(name);
-    return moveMember(name, room, slot, index);
+    const moved = moveMember(name, room, slot, index);
+    if (moved && (slot === 'unsortedJury' || slot === 'unsorted')) {
+      state.members[name].volunteeredJury = slot === 'unsortedJury';
+    }
+    return moved;
   }
   function addChild(targetName, sourceName) {
     if (!state.members[targetName] || !state.members[sourceName]) return false;
@@ -169,6 +184,14 @@
       state.members[target].children.push(childName);
     }
     sourceMember.children = [];
+    // Joining another participant in the 'Potential Jury' area is an
+    // explicit request to join that jury-candidate group.
+    const head = state.members[target];
+    if (head.slot === 'unsortedJury') {
+      for (const memberName of partyMembers(target)) {
+        state.members[memberName].volunteeredJury = true;
+      }
+    }
     return true;
   }
   function unlink(name) {
@@ -189,6 +212,15 @@
     }
     // Insert siblings in their original sequence, *after* their former lead.
     list.splice(position + 1, 0, ...children);
+    // If a mixed-preference group is dissolved in an unsorted pool, restore
+    // each person's own volunteer status in the corresponding visible list.
+    if (parent.slot === 'unsorted' || parent.slot === 'unsortedJury') {
+      for (const memberName of [rootName, ...children]) {
+        const preferred = state.members[memberName].volunteeredJury ? 'unsortedJury' : 'unsorted';
+        if (state.members[memberName].slot !== preferred)
+          moveMember(memberName, parent.room, preferred);
+      }
+    }
   }
   function deleteMember(name) {
     if (!state.members[name]) return;
@@ -216,10 +248,8 @@
     if (!room || !formats[format] || room.format === format) return;
     const targets = allSlots(room).flatMap(slot => listNames(room.id, slot.id));
     for (const name of targets) {
-      const oldSlot = state.members[name].slot;
-      const isJury = oldSlot === 'jury' || oldSlot === 'unsortedJury';
       const toRoom = state.rooms.length === 1 ? rootId : room.id;
-      moveMember(name, toRoom, isJury ? 'unsortedJury' : 'unsorted');
+      moveMember(name, toRoom, returnPoolSlot(name));
     }
     room.format = format;
     room.slotSize = formats[format].size;
@@ -230,13 +260,14 @@
     if (idx === -1 || state.rooms.length === 1) return;
     for (const slot of allSlots(state.rooms[idx])) {
       for (const name of listNames(roomId, slot.id)) {
-        moveMember(name, rootId, slot.id === 'jury' || slot.id === 'unsortedJury' ? 'unsortedJury' : 'unsorted');
+        moveMember(name, rootId, returnPoolSlot(name));
       }
     }
     state.rooms.splice(idx, 1);
     if (state.rooms.length === 1) {
       for (const slotId of ['unsorted', 'unsortedJury']) {
-        for (const name of listNames(state.rooms[0].id, slotId)) moveMember(name, rootId, slotId);
+        for (const name of listNames(state.rooms[0].id, slotId))
+          moveMember(name, rootId, returnPoolSlot(name));
       }
     }
   }
@@ -250,7 +281,7 @@
     for (const room of state.rooms) {
       for (const slot of allSlots(room)) {
         for (const name of listNames(room.id, slot.id)) {
-          moveMember(name, rootId, ['jury', 'unsortedJury'].includes(slot.id) ? 'unsortedJury' : 'unsorted');
+          moveMember(name, rootId, returnPoolSlot(name));
         }
       }
     }
@@ -263,7 +294,7 @@
     for (const slot of allSlots(room)) {
       if (['unsorted', 'unsortedJury'].includes(slot.id) && toRoom === roomId) continue;
       for (const name of listNames(roomId, slot.id)) {
-        moveMember(name, toRoom, slot.id === 'jury' || slot.id === 'unsortedJury' ? 'unsortedJury' : 'unsorted');
+        moveMember(name, toRoom, returnPoolSlot(name));
       }
     }
   }
@@ -306,7 +337,7 @@
       listNames(sourceRoom, sourceSlot).filter(name => !!state.members[name]).map(name => ({
         name, sourceRoom, sourceSlot,
         size: partySize(name), exp: partyExp(name),
-        possibleJury: sourceSlot === 'unsortedJury'
+        possibleJury: isVoluntaryParty(name)
       }))));
   }
   // Allocate complete debates using a 0/1 dynamic program. Every group is kept
@@ -457,7 +488,7 @@
         for (const name of listNames(source, slot)) candidateNames.add(name);
       }
     }
-    const pool = [...candidateNames].map(name => ({ name, possible: state.members[name]?.slot === 'unsortedJury' }));
+    const pool = [...candidateNames].map(name => ({ name, possible: isVoluntaryParty(name) }));
     // Predict jury experience with the same strict preference order as the
     // allocation: registered volunteers first, experienced others second.
     // This estimate is for speaker balancing, not a mandatory qualification.
