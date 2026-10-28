@@ -1,3 +1,28 @@
+# Änderungen – Debattenplaner v1.7 (28. Oktober 2026)
+
+## Behobener Fehler: Jurybereitschaft nach Löschen eines Gruppenleiters
+
+Wenn in einer gemischten Gruppe die Gruppenleitung gelöscht wird, werden die verbliebenen Personen wieder einzeln geführt. Bis einschließlich v1.6 konnte dabei eine freiwillig für die Jury gemeldete Person fälschlich unter „Unsortiert“ sichtbar bleiben, obwohl ihre persönliche Vormerkung intern erhalten war.
+
+**Korrektur:** `deleteMember()` berücksichtigt beim Freigeben der Gruppenmitglieder jetzt deren individuelles Merkmal `volunteeredJury`. Freiwillige Personen werden innerhalb ihres bisherigen Bereichs in „Mögliche Jury“ und andere in „Unsortiert“ eingeordnet. Befand sich die Gruppe auf einem Team- oder Juryplatz, bleiben die freigegebenen Mitglieder dort.
+
+## Unverändert
+
+- Jurypriorität (Freiwillige → erfahrene Nicht-Freiwillige → unerfahrene Nicht-Freiwillige), Erfahrungsausgleich und Mehrraumverteilung.
+- OPD/BPS, manuelle Einzelzuweisung, Gruppenbedienung, Touch-/Maus-Drag-and-drop, Dark Mode und Sprachauswahl.
+- Originaldesign, Offline-Nutzung ohne Installation, keine dauerhafte Speicherung und Verweis auf das Originalrepository.
+
+## Prüfung
+
+- 9/9 gezielte Logiktests einschließlich 250 zufälliger Gruppenänderungen mit Integritätskontrolle bestanden.
+- 9/9 praktische Chromium-UI-Tests bestanden, darunter Löschen einer gemischten Gruppe und anschließende bevorzugte Juryzuweisung.
+- 12/12 bestehende v1.6-Jury- und Rücksetzregressionstests bestanden.
+- 15/15 bestehende Maus-/Touchprüfungen bestanden (Touch in Chromium simuliert).
+- Vier komplexe 100-Personen-Szenarien wurden vollständig eingeteilt; der zusätzliche Überfüllungstest wurde korrekt abgelehnt.
+- `node --check app.js` erfolgreich. Einschränkungen und Testmethodik: `PRUEFBERICHT_v1.7.md`.
+
+---
+
 # Änderungen – Debattenplaner v1.6 (28. Oktober 2026)
 
 ## Behebung: Juryfreiwilligkeit bleibt eine eigene Information

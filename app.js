@@ -225,22 +225,36 @@
   function deleteMember(name) {
     if (!state.members[name]) return;
     const member = state.members[name];
-    if (member.children.length) {
-      const list = getList(member.room, member.slot);
+    const releasedChildren = member.children.slice();
+    const oldRoom = member.room;
+    const oldSlot = member.slot;
+    if (releasedChildren.length) {
+      const list = getList(oldRoom, oldSlot);
       const position = list.indexOf(name);
-      const children = member.children.slice();
       member.children = [];
-      for (const childName of children) {
+      for (const childName of releasedChildren) {
         const child = state.members[childName];
         if (!child) continue;
         child.parent = null;
-        child.room = member.room;
-        child.slot = member.slot;
+        child.room = oldRoom;
+        child.slot = oldSlot;
       }
-      list.splice(position + 1, 0, ...children);
+      list.splice(position + 1, 0, ...releasedChildren);
     }
     detach(name);
     delete state.members[name];
+    // When deleting a party leader in an unsorted area, the remaining people
+    // become independent again. Show each person in the pool matching their
+    // *own* volunteered jury preference, not the former leader's pool.
+    // Do not move children already assigned to a team or jury seat.
+    if (oldSlot === 'unsorted' || oldSlot === 'unsortedJury') {
+      for (const childName of releasedChildren) {
+        const child = state.members[childName];
+        if (!child) continue;
+        const pool = child.volunteeredJury ? 'unsortedJury' : 'unsorted';
+        if (child.slot !== pool) moveMember(childName, oldRoom, pool);
+      }
+    }
     if (state.selected === name) state.selected = null;
   }
   function changeFormat(roomId, format) {

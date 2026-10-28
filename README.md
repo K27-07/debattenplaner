@@ -1,6 +1,6 @@
 # Debattenplaner – Offline-Version im Originaldesign
 
-**Version 1.6 – 28. Oktober 2026:** Stabilitätsupdate für die Juryverwaltung. Eine automatische Juryzuweisung macht niemanden mehr versehentlich zum freiwilligen Juror. Freiwillige behalten ihre Anmeldung beim Einsammeln, beim Löschen eines Raums und beim Formatwechsel. Die Jurypriorität und die Touchbedienung bleiben erhalten.
+**Version 1.7 – 28. Oktober 2026:** Gezielte Korrektur der Gruppenverwaltung. Wenn der Leiter einer gemischten Gruppe in „Unsortiert“ oder „Mögliche Jury“ gelöscht wird, erscheinen die verbliebenen Personen wieder entsprechend ihrer persönlichen Jurybereitschaft in der passenden Liste. Bereits zugewiesene Team- und Juryplätze werden dadurch nicht verändert. Jurypriorität, OPD/BPS, Touchbedienung und Offline-Betrieb bleiben erhalten.
 
 Diese Version orientiert sich bei **Aufbau und Aussehen an der ursprünglich bereitgestellten Vue-/Vuetify-Anwendung**: einfache obere Leiste, die unzugeordneten Teilnehmenden und mögliche Jury am Anfang, Raum-Einstellungen links, weiße runde Debattenfelder, Material-Symbole und kleine graue bzw. grüne Teilnehmer-Chips. Die Oberfläche wurde ohne Vue-Bibliotheken für die lokale Nutzung nachgebildet. Kleine Unterschiede zu Vuetify, beispielsweise bei den Schriftarten oder Icons, sind möglich.
 
@@ -66,3 +66,7 @@ Für **v1.3** wurden 12 Chromium-Bedienungstests und 7 zusätzliche Browser-Smok
 ### Tests zu v1.6
 
 12 gezielte Jury-/Rücksetz-Szenarien bestanden, darunter 12 wiederholte Verteilungen ohne Freiwillige, 10 Verteilungen mit freiwilligem Anfänger, Einsammeln, Raumlöschen, Formatwechsel, manuelles Abmelden, mehrere Räume und Gruppen. Zehn UI-Bedienprüfungen und 15 Touch-/Maustests bestanden. Vier komplexe Fälle mit jeweils 100 Teilnehmern wurden erneut erfolgreich durchgespielt. Details und Grenzen stehen in `PRUEFBERICHT_v1.6.md`.
+
+### Tests zu v1.7
+
+9 gezielte Logik- und Gruppenszenarien bestanden (einschließlich des zuvor reproduzierten Löschfehlers, gemischter Gruppen, lokaler Raumlisten, normaler Teamplätze und 250 zufallsbasierter Bearbeitungsschritte), dazu 9 praktische Chromium-Browserprüfungen. Alle 12 bestehenden Juryregressionstests und 15 Touch-/Mausprüfungen bestanden. Fünf Belastungsfälle mit 100 Personen wurden geprüft: vier vollständig lösbare Szenarien ohne Teilnehmerverlust und ein manuell überfülltes Team mit korrekter Fehlermeldung. Details siehe `PRUEFBERICHT_v1.7.md`.
