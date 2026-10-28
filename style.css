@@ -160,16 +160,65 @@ button:disabled { opacity: .36; cursor: default; }
 .slot-controls .place-btn { position: absolute; right: 6px; bottom: 5px; z-index: 2; box-shadow: var(--shadow); }
 .selected-hint { position: fixed; left: 16px; bottom: 12px; max-width: min(520px, calc(100vw - 32px)); z-index: 50; margin: 0; box-shadow: var(--shadow); }
 
-/* v1.4: finger-driven drag-and-drop; regular taps and mouse drag stay intact.
-   Applying touch-action only on member chips prevents mobile browsers from
-   hijacking an active finger drag as page scrolling. Scroll from surrounding
-   slot/board areas instead. */
+/* v1.9 mobile: regular swipes across participant chips should scroll.
+   Touch dragging is triggered by a 350ms hold in app.js, which then prevents
+   default scrolling only while a drag is active. */
 @media (pointer: coarse) {
-  .member { touch-action: none; -webkit-touch-callout: none; }
+  .member { touch-action: auto; -webkit-touch-callout: none; }
+}
+
+/* Only real debate rooms may have horizontally scrolling columns. The global
+   pool wraps within the available width, even with hundreds of participants. */
+.global-board .slots {
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.global-board .slot { min-width: 0; }
+.global-board .members { min-width: 0; max-width: 100%; }
+@media (max-width: 690px) {
+  .global-board .slots { grid-template-columns: minmax(0, 1fr); }
 }
 .touch-drag-ghost {
   position: fixed; z-index: 9999; pointer-events: none; margin: 0;
   transform: translate(-50%, -100%); width: max-content; max-width: 72vw;
   overflow: hidden; text-overflow: ellipsis; box-shadow: var(--shadow);
   opacity: .95; outline: 2px solid var(--focus);
+}
+
+/* v1.9: quicker check-in, readable room progress and accessible editing. */
+.board-overview { display:flex; align-items:center; gap:8px 15px; flex-wrap:wrap;
+  padding:7px 10px 11px; margin:0 0 5px; font-size:13px; border-bottom:1px solid var(--line); }
+.board-overview strong { font-size:15px; overflow-wrap:anywhere; }
+.board-overview span { color:var(--subtle); }
+.seat-progress { background:var(--field); border:1px solid var(--line);
+  border-radius:16px; padding:4px 9px; white-space:nowrap; }
+.seat-progress.complete { font-weight:600; color:var(--text); }
+.new-member { height:auto; min-height:34px; flex-wrap:wrap; }
+.new-member .volunteer-toggle { display:inline-flex; position:relative; align-items:center;
+  border-radius:15px; padding:2px 6px; cursor:pointer; font-size:12px; }
+.new-member .volunteer-toggle > span { display:flex; align-items:center; gap:3px; pointer-events:none; }
+.new-member .volunteer-toggle input { margin:0 3px 0 0; accent-color:var(--focus); }
+.new-member .experience-toggle:has(input:not(:checked)) { background:transparent; }
+.new-member:has(input[name="experienced"]:not(:checked)) { background:var(--green); color:var(--green-text); }
+.member button[data-action="edit-member"] { opacity:.75; }
+.edit-dialog { border:1px solid var(--line); border-radius:16px; max-width:min(420px,calc(100vw - 28px));
+  width:100%; padding:23px; background:var(--surface); color:var(--text); box-shadow:var(--shadow); }
+.edit-dialog::backdrop { background:rgba(0,0,0,.5); }
+.edit-dialog h2 { font-size:20px; font-weight:600; margin:0 0 20px; }
+.edit-line { display:flex; flex-direction:column; gap:6px; margin-bottom:15px; }
+.edit-line input { width:100%; padding:11px; border:1px solid var(--border); border-radius:8px;
+  background:var(--field); color:var(--text); font-size:16px; }
+.edit-option { display:flex; align-items:center; gap:10px; margin:11px 0; padding:5px 0; }
+.edit-option input { accent-color:var(--focus); width:18px; height:18px; }
+.edit-error { color:#b42318; font-size:13px; min-height:16px; }
+:root[data-theme="dark"] .edit-error { color:#ffb4a9; }
+.edit-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:14px; }
+.edit-actions button { border:1px solid var(--line); padding:10px 15px;
+  background:var(--field); color:var(--text); border-radius:8px; }
+.edit-actions .primary-edit { background:var(--focus); color:#fff; border-color:transparent; }
+:root[data-theme="dark"] .edit-actions .primary-edit { color:#111; }
+@media (max-width:690px) {
+  .board-overview { padding:5px 3px 9px; gap:6px 10px; }
+  .board-overview strong { flex-basis:100%; }
 }

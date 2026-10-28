@@ -1,3 +1,148 @@
+# Version 1.9 – korrigierte Behandlung komplexer Gruppen und Rückgabewerte (28.10.2026)
+
+- **Fehlerbegründung präzisiert:** Bei nicht erfolgreich besetzbaren Team- und Juryplätzen mit bestehenden Gruppen wird nicht länger pauschal ein Juryprioritätskonflikt als alleinige Ursache ausgegeben. Die neue Meldung verweist auf die Kombination aus Gruppengrößen und festen Plätzen, ohne mathematische Unlösbarkeit zu behaupten. Wenn die Teilnehmerzahl insgesamt nicht ausreicht, wird dieser Engpass vorrangig gemeldet. Deutsch und Englisch sind berücksichtigt.
+- **Fehlerhafte interne Erfolgsmeldung korrigiert:** Jeder verworfene Verteilungsversuch liefert `accepted: false`; `accepted: true` wird nur für eine tatsächlich übernommene Verteilung ausgegeben. Die endgültige Juryprüfung läuft stets gegen die wirklich zur Übernahme vorgesehene Planung, nicht gegen ein zwischenzeitliches Testergebnis oder einen zurückgesetzten Zustand.
+- **Keine Folgeschäden bei Ablehnung:** Automatische Plätze, manuelle Festlegungen, Gruppen, Statuskennzeichen und sogar die vorhandenen internen Belegungslisten bleiben beim verworfenen Versuch exakt erhalten. Auch wiederholte Ablehnungen erzeugen keine leeren Listen.
+- **Verteilungsregeln unverändert:** Freiwillige Juroren haben weiterhin Vorrang, manuelle Plätze bleiben geschützt. Die bestehenden OPD/BPS-Suchalgorithmen wurden nicht erweitert oder neu gestaltet; Version bleibt **1.9**. Keine Änderungen an GitHub.
+- **Neue Tests:** 6/6 Logik- und Regressionstests sowie 7/7 Chromium-Browserchecks bestanden. **Bestehende Tests:** 1.000/1.000 Clubabend-Simulationen, 140/140 Gruppenszenarien, 13/13 Transaktionstests, 7/7 bestehende Meldungstests, erzwungener Rücknahmefehler und der 100-Personen-Fall mit 11 Räumen und 19 freiwilligen Juroren bestanden. Bestehende Browserprüfungen wurden erneut erfolgreich ausgeführt.
+
+Siehe `PRUEFBERICHT_v1.9_GRUPPEN_FEHLERBEHANDLUNG.md`.
+
+---
+
+# Version 1.9 – Fehlermeldungen nach zurückgenommener Verteilung (28.10.2026)
+
+- **Behoben:** Nach einer fehlgeschlagenen Neuverteilung nannte die Meldung teils sämtliche Pflichtplätze als offen, obwohl die vorher automatisch besetzten Teams beim Rücksetzen erhalten blieben.
+- Die Meldung über **wirklich noch offene Team- und Juryplätze** wird nun **erst nach der Rücknahme** des Berechnungsversuchs anhand der sichtbar erhaltenen Belegungen erzeugt. Ein bereits vollständiges Team wird nicht mehr als leer gemeldet.
+- Sind tatsächlich Personen zu wenig verfügbar, wird der noch erforderliche Mindestbedarf angegeben. Ansonsten wird auf Raum-/Gruppen-/Platzvorgaben hingewiesen. Einzelraum-Aktionen beschreiben nur den betreffenden Raum. Deutsch und Englisch sind berücksichtigt.
+- **Folgefehler vermieden:** Die Diagnose liest vorhandene Listen ohne beim Anzeigen neue leere Listen anzulegen; abgelehnte Verteilungen behalten somit auch intern exakt denselben Zuweisungs-/Gruppenzustand. Überbelegungswarnungen und besondere Jury-/Plausibilitätsmeldungen bleiben erhalten.
+- Keine Änderung an Jurypriorität, Teambesetzung, Zufallsverteilung, Gruppenbehandlung, manuellen Zuweisungen, Mobile-Interface oder Versionsnummer **1.9**. GitHub wurde nicht verändert.
+- **Nachtests:** 7 neue isolierte Fehlermeldungsfälle, 8 neue reale Chromium-Browserprüfungen, 13/13 Transaktionstests, ein erzwungener Berechnungsfehler, 71/71 bestehende Chromium-Tests, 1.000/1.000 simulierte Clubabende und der bekannte schwierige 100-Personen-Fall bestanden.
+
+Siehe `PRUEFBERICHT_v1.9_FEHLERANZEIGE.md`.
+
+---
+
+# Version 1.9 – fehlgeschlagene Neuverteilung ohne Datenänderung (28.10.2026)
+
+- **Bestätigten Fehler behoben:** Wenn ein manuell überfülltes Team eine Neuverteilung verhinderte, waren zuvor automatisch vergebene Plätze in anderen Räumen bereits freigegeben.
+- Vorabprüfung zählt ausschließlich **manuell fixierte** Teilnehmer beziehungsweise Gruppen gegen die Kapazität. Alte automatisch vergebene Plätze dürfen bei erfolgreicher Neuverteilung weiterhin ersetzt werden.
+- **Transaktionale Sicherung:** Vor der Berechnung wird der vollständige Platz-/Gruppierungszustand gesichert. Bei abgelehnter Verteilung, Fehler der Plausibilitätsprüfung, verlorenem bereits vollständigem Raum oder unerwarteter Ausnahme wird der Zustand vollständig zurückgesetzt. Nur die zutreffende Fehlermeldung wird angezeigt.
+- **Folgefehler abgefangen:** Auch neu angelegte leere interne Listen werden beim Abbruch zurückgenommen; ein manuell vollständiger Raum zählt nicht als Fortschritt, wenn in einem anderen Raum nur bisherige automatische Plätze freigeräumt wurden; klare Meldung bei unverändertem Plan.
+- **Weiterhin zulässig:** Eine echte Teilverteilung, die zusätzliche Räume erstmals vollständig besetzt, sowie erneutes Zufallsverteilen bereits vollständig besetzter Räume. Manuelle Vorgaben und die Jurypriorität bleiben verbindlich.
+- Geprüft: 13 gezielte Logiktests; 11 Chromium-Tests; 1000/1000 simulierte Clubabende; 140/140 Gruppenfälle; 22 Status-, 20 Interface-, 18 Eingabetests sowie der komplexe 100-Personen-Fall. Ein künstlich ausgelöster interner Fehler wurde ebenfalls zurückgerollt.
+- Keine Änderung der Versionsnummer **1.9**, keine Änderung auf GitHub, keine neue externe Bibliothek und keine dauerhafte Speicherung.
+
+---
+
+# Version 1.9 – Statusmeldungen nach manuellen Änderungen (28.10.2026)
+
+- **Behoben:** Nach einer erfolgreich automatisch verteilten Debatte blieb die alte Erfolgsmeldung sichtbar, obwohl zwischenzeitlich beispielsweise ein Juror gelöscht wurde.
+- Nach manuellem Hinzufügen/Löschen, Platzieren, Gruppieren/Entgruppieren, Drag-and-drop, Raumänderungen und Einsammeln wird ein überholter Verteilungshinweis ausgeblendet. Eine anschließende automatische Verteilung zeigt wieder eine aktuelle Meldung.
+- Reine Auswahl eines Namens oder Wechsel des Farbschemas entfernt eine ansonsten gültige Meldung nicht. Nach dem Bearbeiten eines Teilnehmers erscheint weiterhin die spezifische Bearbeitungsbestätigung.
+- **Unverändert:** gesamte Jury- und Teamverteilung, Freiwilligenpriorität, Gruppierung in „Mögliche Jury“ (bewusste freiwillige Meldung), manuelle Festlegungen, Touch-Bedienung und alle Eingabestandards. Versionsnummer bleibt **1.9**.
+- Tests: 22/22 gezielte Browserprüfungen; 20/20 Interfaceprüfungen; 18/18 Eingabestandardprüfungen; 1000/1000 simulierte Clubabende; komplexer 100-Personen-Juryfall erfolgreich.
+
+Siehe `PRUEFBERICHT_v1.9_STATUSFIX.md`.
+
+---
+
+# Version 1.9 – Standardwerte bei jeder neuen Anmeldung (28.10.2026)
+
+- Nach jedem **erfolgreichen** Hinzufügen eines Teilnehmers wird die Erfassungsmaske wieder auf **erfahren** und **nicht freiwillig jurierend** gesetzt. Ein zuvor ausgewählter Status wird nicht unbemerkt auf die nächste Person übertragen.
+- Der gerade hinzugefügte Teilnehmer behält die bewusst gewählten Merkmale; bestehende Teilnehmer bleiben unberührt.
+- Der Eingabefokus bleibt im Namensfeld, sodass mehrere Personen weiterhin schnell nacheinander eingetragen werden können.
+- Keine Änderung an der Verteilungslogik; Versionsnummer bleibt **1.9**.
+
+---
+
+# Version 1.9 – Interface-Verbesserungen (28.10.2026)
+
+- Bestehende Teilnehmende über Stiftsymbol bearbeiten: Name, Erfahrung und Jurybereitschaft. Namensänderungen erhalten Gruppen-/Platzverknüpfungen, doppelte Namen werden abgelehnt.
+- Erfassung (früherer v1.9-Stand): Fokus nach Enter bleibt erhalten, Erfahrung/Jury-Schalter blieben beim nächsten Namen gesetzt. **Mit der aktuellen v1.9-Nachkorrektur werden sie stattdessen zurückgesetzt.** Freiwillige Juroren kommen direkt in die Kandidatenliste.
+- Räume erhalten kompakte Übersichten mit Format, Personenanzahl und Pflichtplatzstand.
+- Meldungen zu unvollständigen Verteilungen nennen die offenen Pflichtplätze und enthalten konkrete Prüfhinweise.
+- Die zuletzt korrigierte Zuteilungslogik bleibt unverändert. Versionsnummer weiterhin 1.9.
+- Prüfungen: 20/20 Chromium-Interaktionen, 4/4 Layoutbreiten à 200 Personen, 1.000/1.000 Clubabende, kritischer 100-Personen-Fall bestanden.
+
+# v1.9 – Jurypriorität bei komplexen Mehrraum-Verteilungen (28.10.2026)
+
+Diese Korrektur bleibt **Version 1.9**.
+
+- Die globale Jurypriorität wird bei einem nicht regelkonformen, aber ansonsten vollständigen Raumplan schon **vor** der Teamzuweisung als zusätzliche Planungsstrategie berücksichtigt. Im neuen Rückfallweg werden zunächst verfügbare freiwillige Jurygruppen und danach (sofern erforderlich) erfahrene Nicht-Freiwillige auf noch offene Juryplätze verteilt. Erst danach werden die verbleibenden Teamplätze mit dem bisherigen Algorithmus ausgefüllt.
+- Anders als beim früheren reinen Tausch gleich großer Gruppen können zwei einzelne Freiwillige somit auch statt einer nicht freiwilligen Zweiergruppe in die Jury gelangen.
+- Manuell belegte Plätze und Raumbindungen bleiben geschützt. Das Ergebnis wird ausschließlich übernommen, wenn die Juryregeln eingehalten werden und gegenüber der ursprünglichen Lösung keine bereits vollständig besetzten Räume verloren gehen.
+- Mehrere begrenzte randomisierte Neuplanungen verhindern, dass genau eine ungünstige Kandidatenreihenfolge eine gültige Zuordnung verhindert. Die bisherigen Suchgrenzen und die vorhandene explizite Konfliktmeldung bleiben bestehen, wenn keine Lösung gefunden wird.
+- Oberfläche, mobile Bedienung und übrige Regeln wurden nicht verändert.
+
+**Nachtests:** Vorher reproduzierbarer deterministischer Fall mit 100 Personen (Seed 67, 6 OPD + 5 BPS, 22 Juryplätze) jetzt 11/11 Räume vollständig, 19 Freiwillige automatisch in der Jury; keine manuelle Vorgabe verändert und keine Personen verloren. 40/40 komplexe 100-Personen-Varianten, 140/140 zufällige Gruppenkonstellationen und 1000/1000 simulierte Clubabende mit OPD, BPS, festen Positionen und freiwilligen Juroren bestanden. Der Problemfall wurde auch per Klick in Chromium erfolgreich durchgespielt. Bericht: `PRUEFBERICHT_v1.9_JURYFIX.md`.
+
+**Grenze:** Dies ist ein gezielter zuverlässigerer Rückfallweg, keine mathematisch vollständige Suche über alle möglichen Gruppenkonstellationen. Bei widersprüchlichen festen Positionen oder bei Erreichen des Rechenbudgets kann weiterhin eine automatische Verteilung abgelehnt werden.
+
+---
+
+# Nachkorrektur v1.9 – Mobile Darstellung und Touch-Bedienung (28. Oktober 2026)
+
+Diese Nachkorrektur bleibt **Version 1.9**. Die fachliche Zuteilungslogik wurde nicht verändert.
+
+1. **Teilnehmerliste:** Die globale Liste von „Unsortiert“ und „Mögliche Jury“ ist nun auf die verfügbare Breite begrenzt. Namen umbrechen innerhalb des Boards. Auf Smartphone-Breite stehen die Bereiche untereinander; reguläre Debattenbretter bleiben weiterhin horizontal scrollbar.
+2. **Wischen und Ziehen:** Eine normale Wischbewegung über Teilnehmer-Chips scrollt nun die Seite bzw. ein Debattenbrett. Eine Berührung von mindestens 350 ms ohne vorherige Bewegung aktiviert weiterhin Drag-and-drop. Nur während des tatsächlichen Ziehens wird das Standardscrollen unterdrückt. Maus-Drag-and-drop bleibt unverändert.
+
+**Nachtests:** 16 Kombinationen aus Bildschirmbreite (320, 390, 768, 1280 px) und Teilnehmerzahl (5, 20, 70, 200) ohne horizontales Überlaufen des globalen Boards; Touch-Wischen vertikal auf einem Namen, horizontal im Debattenraum, Tap-Auswahl und Long-press-DnD bestanden. Sechs Kernfälle der Verteilungslogik und 1.000 simulierte Clubabende bestanden. Kein Test auf realen iOS-/Android-Geräten; Safari und Firefox nicht geprüft. Details: `PRUEFBERICHT_v1.9_MOBILKORREKTUR.md`.
+
+---
+
+# Debattenplaner – Änderungsprotokoll
+
+## Version 1.9 – zusätzliche Gruppenkorrektur (28.10.2026)
+
+Die Versionsnummer **1.9** bleibt erhalten; dies ist eine überarbeitete Ausgabe derselben Version.
+
+- **Behoben:** Eine per Hand zusammengestellte Gruppe konnte beim Löschen ihrer Leitung ein bisher automatisch zugewiesenes Mitglied zurücklassen (`autoSeat: true`). Ein erneutes automatisches Verteilen verschob dieses Mitglied unbeabsichtigt aus dem bisherigen Team oder sogar in die Jury.
+- **Behebung in `addChild()`:** Die manuelle Platzbindung (`autoSeat: false`, `autoRoom: false`, `reservedRoom`) wird nun auf *sämtliche* Mitglieder der neu gebildeten Gruppe angewendet, auch wenn eine ganze bestehende Gruppe hinzugefügt wird.
+- **Behebung in `deleteMember()`:** Beim Löschen einer Gruppenleitung übernehmen alle freigesetzten Mitglieder explizit die manuelle Platz-/Raumbindung ihres bisherigen Gruppenplatzes.
+- **Zusätzliche Absicherung in `moveMember()`:** Wird eine gesamte Gruppe manuell verschoben, insbesondere durch Einsammeln oder Formatwechsel, werden die Reservierungen ihrer Kinder konsistent aktualisiert.
+- **Unverändert:** Strenge Jurypriorität, freiwillige Juryregistrierung, erneute automatische Verteilung, Raumaufteilung, Scroll-/Fokuskorrekturen sowie die Versionsnummer.
+
+**Eigene Nachtests:** Zehn gezielte Browser-Testbereiche bestanden; 220 zufällige Bearbeitungsschritte ohne Integritätsfehler; 60 gemischte OPD-/BPS-Raumverteilungen mit korrekter Pflichtplatzbesetzung und Jurypriorität. Details siehe `PRUEFBERICHT_v1.9_GRUPPENKORREKTUR.md`.
+
+---
+
+# Nachkorrektur v1.9 (Version bleibt 1.9) – 28. Oktober 2026
+
+- **Jury bei erneuter Verteilung:** Der Planer unterscheidet automatisch gesetzte Team-, Jury- und freie Rednerplätze von ausdrücklichen manuellen Zuweisungen. Bei einer neuen Automatikplanung werden nur automatische Plätze vor der Neuberechnung freigegeben, und zwar unter Beibehaltung manuell reservierter Räume. Fehlgeschlagene Prioritätsprüfungen rollen die Änderung auf den Zustand vor der Aktion zurück.
+- **Turnierweite Jurypriorität auch bei Einzelräumen:** Nach jedem Teamplan werden automatisch belegte Juroren gegen bislang nicht als Juroren eingesetzte, höher priorisierte Personen in **allen** Räumen geprüft. Bei einem Widerspruch wird die Aktion zurückgewiesen, ohne andere Räume heimlich zu ändern. Die Priorität lautet: freiwillig, dann erfahren, dann unerfahren; fest manuell belegte Plätze bleiben ausgenommen.
+- **Unabhängige Zufalls-Raumaufteilung:** „Auf Räume verteilen“ weist jetzt sämtliche global unsortierten Personen auch bei Unterbelegung einem Raum zu, ohne bereits Team- oder Juryplätze zu besetzen. Bestehende manuelle Raumzuordnungen werden nicht verändert. Bei wiederholtem Aufruf dürfen vorherige automatisch erzeugte reine Raumzuweisungen neu gemischt werden. Gruppen bleiben zusammen.
+- **Namensformular:** Nach erfolgreicher Eingabe über Enter oder Klick bleibt der Namenseingabefokus erhalten.
+- Die bestehende Darstellung, die Scroll-Korrektur und der GitHub-Link der v1.9 bleiben unverändert.
+
+**Eigene Nachtests:** `PRUEFBERICHT_v1.9_NACHKORREKTUR.md`. Die GitHub-Pages-Version wurde nicht automatisch geändert.
+
+---
+
+# Änderungen – Debattenplaner v1.9 (28. Oktober 2026)
+
+## Behebung: Freiwillige Jury hat verbindlichen Vorrang – auch ohne Gruppen
+
+- Die globale Jurypriorität wird jetzt **bei jeder automatischen Verteilung geprüft**. Zuvor wurde die Kontrolllogik übersprungen, wenn keine Teilnehmergruppen vorhanden waren.
+- Selbst bei teilweise gefüllten Veranstaltungen darf kein automatisch eingesetzter nicht freiwilliger Juror Vorrang vor einem verfügbaren freiwilligen Juror erhalten. Für die Beurteilung zählen nur **tatsächlich neu besetzte Juryplätze**: unbesetzte Räume alleine lösen keinen Fehlalarm aus.
+- Individuell vorab einem Raum zugeordnete Personen behalten ihre Raumzuweisung. Wenn die Kombination der festen Raumzuordnungen und globalen Jurypriorität nicht erfüllbar ist, wird die **gesamte automatische Aktion rückgängig gemacht**, mit verständlicher Meldung. Bestehende Positionen und Teilnehmer bleiben unverändert.
+- Vorhandene manuelle Jurybesetzungen sind ausgenommen; sie werden nicht eigenmächtig umgestellt.
+
+## Behebung: Scrollposition auf schmalen Bildschirmen
+
+- Vor dem Neurendern werden horizontale und vertikale Scrollpositionen der einzelnen Debattenfelder anhand ihrer Raum-IDs gespeichert und danach wiederhergestellt. Das verhindert das Springen zum linken Rand auf Smartphones.
+
+## Kleinere Anpassung
+
+- Das GitHub-Symbol führt nun zum tatsächlich verwendeten Repository `K27-07/debattenplaner`. Die ursprüngliche Vorlage bleibt im README genannt.
+
+## Tests
+
+Siehe `PRUEFBERICHT_v1.9.md`. Die ZIP wurde lokal geprüft; kein automatischer Upload nach GitHub und kein direkter Zugriff auf das öffentliche Deployment erfolgten.
+
+---
+
 # Änderungen – Debattenplaner v1.8 (28. Oktober 2026)
 
 ## Verbindliche Jurypriorität auch bei gemischten Gruppen

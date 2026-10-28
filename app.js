@@ -43,7 +43,18 @@
       overfilled: 'Raum {room}: {slot} ist überfüllt ({current} statt höchstens {maximum}). Bitte die manuelle Zuweisung korrigieren.',
       searchLimit: 'Die Suche nach einer vollständigen Einteilung hat ihre Rechengrenze erreicht. Möglicherweise gibt es eine Lösung. Bitte Gruppierung oder Raumgrößen anpassen und erneut versuchen.',
       invalidPlan: 'Interner Plausibilitätsfehler: Die errechnete Einteilung wurde nicht übernommen. Keine Änderungen vorgenommen.',
-      juryPriorityConflict: 'Die Jurypriorität kann mit den vorhandenen Gruppierungen oder Raumvorbelegungen nicht vollständig eingehalten werden. Keine automatische Einteilung übernommen. Bitte Gruppen oder Vorbelegungen anpassen.'
+      unchangedPlan: 'Keine neue vollständige Einteilung übernommen. Alle bisherigen Zuweisungen bleiben erhalten.',
+      juryPriorityConflict: 'Die Jurypriorität kann mit den vorhandenen Gruppierungen oder Raumvorbelegungen nicht vollständig eingehalten werden. Keine automatische Einteilung übernommen. Bitte Gruppen oder Vorbelegungen anpassen.',
+      groupFitConflict: 'Mit den aktuellen Gruppen und festen Plätzen wurde keine vollständige regelkonforme Team- und Jurybelegung gefunden. Gruppengrößen können insbesondere die freien Teamplätze blockieren. Keine automatische Einteilung übernommen.',
+      roomsDistributed: '{n} Teilnehmende zufällig auf {r} Räume verteilt.',
+      edit: 'Bearbeiten', editParticipant: 'Teilnehmer bearbeiten', save: 'Speichern', cancelEdit: 'Abbrechen',
+      duplicateName: 'Dieser Name existiert bereits. Bitte einen anderen Namen verwenden.',
+      editSaved: 'Teilnehmer aktualisiert. Bei Bedarf die Teams erneut automatisch verteilen.',
+      juryVolunteer: 'Freiwillig jurieren', available: 'Noch nicht auf Räume verteilt',
+      present: 'Anwesend', roomPeople: 'Personen im Raum', mandatorySeats: 'Pflichtplätze',
+      unfilled: 'Offene Plätze', roomReady: 'Pflichtplätze belegt',
+      missingSlots: 'Offen: {slots}.',
+      retryHint: 'Prüfe feste Plätze, Gruppierungen oder die Anzahl der Räume und starte die Verteilung erneut.'
     },
     en: {
       title: 'Debate Planner', subtitle: 'No installation · Offline',
@@ -70,13 +81,25 @@
       overfilled: 'Room {room}: {slot} is overfilled ({current}; maximum {maximum}). Please adjust manual assignments.',
       searchLimit: 'The search for a complete seating hit its computational limit. A valid seating may still exist. Adjust groups or room sizes and retry.',
       invalidPlan: 'Internal validation failed: the proposed seating was not applied. No changes made.',
-      juryPriorityConflict: 'Jury priority cannot be fully respected with the current groups or room reservations. No automatic seating was applied. Please adjust groups or preassignments.'
+      unchangedPlan: 'No new complete allocation was applied. All existing assignments remain unchanged.',
+      juryPriorityConflict: 'Jury priority cannot be fully respected with the current groups or room reservations. No automatic seating was applied. Please adjust groups or preassignments.',
+      groupFitConflict: 'No fully valid team and jury seating was found with the current groups and fixed places. Group sizes may prevent the remaining team seats from being filled. No automatic allocation was applied.',
+      roomsDistributed: '{n} participants randomly assigned to {r} rooms.',
+      edit: 'Edit', editParticipant: 'Edit participant', save: 'Save', cancelEdit: 'Cancel',
+      duplicateName: 'This name is already in use. Choose another name.',
+      editSaved: 'Participant updated. Redistribute teams if necessary.',
+      juryVolunteer: 'Volunteer juror', available: 'Not yet assigned to rooms',
+      present: 'Present', roomPeople: 'People in room', mandatorySeats: 'Required seats',
+      unfilled: 'Empty seats', roomReady: 'Required seats filled',
+      missingSlots: 'Still empty: {slots}.',
+      retryHint: 'Check reserved seats, groups or room count, then try distributing again.'
     }
   };
 
   const state = {
     lang: 'de', dark: false, members: Object.create(null), lists: Object.create(null),
-    rooms: [], nextRoom: 0, dragging: null, selected: null, notice: ''
+    rooms: [], nextRoom: 0, dragging: null, selected: null, notice: '',
+    entryExperienced: true, entryVolunteer: false
   };
   const rootId = 'rootUnsorted';
   const t = (key) => messages[state.lang][key] || key;
@@ -114,14 +137,55 @@
     state.rooms.splice(position, 0, { id, format: 'opd', slotSize: 3, juryCount: 1, displayName: '' });
     return id;
   }
-  function addMember(input, experienced) {
+  function addMember(input, experienced, volunteeredJury = false) {
     const base = input.trim();
     if (!base) return false;
     let name = base, num = 1;
     while (Object.hasOwn(state.members, name)) name = `${base} ${roman(++num)}.`;
-    state.members[name] = { experienced, volunteeredJury: false, children: [], parent: null, room: rootId, slot: 'unsorted' };
-    getList(rootId, 'unsorted').push(name);
+    state.members[name] = { experienced, volunteeredJury, children: [], parent: null, room: rootId, slot: volunteeredJury ? 'unsortedJury' : 'unsorted',
+      reservedRoom: rootId, autoSeat: false, autoRoom: false };
+    getList(rootId, volunteeredJury ? 'unsortedJury' : 'unsorted').push(name);
     return true;
+  }
+  // Renaming must update *every* reference: lists contain only group leaders;
+  // child-parent and parent-child links use names as identifiers as well.
+  function updateMember(oldName, input, experienced, volunteeredJury) {
+    if (!Object.hasOwn(state.members, oldName)) return 'missing';
+    const newName = input.trim();
+    if (!newName) return 'empty';
+    if (newName !== oldName && Object.hasOwn(state.members, newName)) return 'duplicate';
+    const member = state.members[oldName];
+    if (newName !== oldName) {
+      state.members[newName] = member;
+      delete state.members[oldName];
+      for (const list of Object.values(state.lists)) {
+        for (let i = 0; i < list.length; i++) if (list[i] === oldName) list[i] = newName;
+      }
+      for (const other of Object.values(state.members)) {
+        if (other.parent === oldName) other.parent = newName;
+        for (let i = 0; i < other.children.length; i++)
+          if (other.children[i] === oldName) other.children[i] = newName;
+      }
+      if (state.selected === oldName) state.selected = newName;
+      if (state.dragging === oldName) state.dragging = newName;
+    }
+    member.experienced = Boolean(experienced);
+    member.volunteeredJury = Boolean(volunteeredJury);
+    // In a waiting area, preserve the whole party and its room reservation.
+    // Only the waiting-list classification changes; no automatic seat is pinned.
+    const party = state.members[rootOf(newName)];
+    if (party && ['unsorted', 'unsortedJury'].includes(party.slot)) {
+      const wanted = isVoluntaryParty(newName) ? 'unsortedJury' : 'unsorted';
+      if (wanted !== party.slot) {
+        const current = getList(party.room, party.slot);
+        const pos = current.indexOf(rootOf(newName));
+        if (pos !== -1) current.splice(pos, 1);
+        getList(party.room, wanted).push(rootOf(newName));
+        party.slot = wanted;
+      }
+    }
+    state.notice = t('editSaved');
+    return null;
   }
   function detach(name) {
     const member = state.members[name];
@@ -136,13 +200,33 @@
       if (i !== -1) list.splice(i, 1);
     }
   }
-  function moveMember(name, room, slot, index = Infinity) {
+  function moveMember(name, room, slot, index = Infinity, automatic = false) {
     const member = state.members[name];
     if (!member || !findRoom(room) && room !== rootId) return false;
     if (!allSlots(findRoom(room) || { id: rootId }).some(s => s.id === slot)) return false;
     detach(name);
     member.room = room;
     member.slot = slot;
+    // A room reserved by a user is kept on future automatic replanning.
+    // Automatic seats can be freed without changing this reservation.
+    if (automatic) {
+      member.autoSeat = !['unsorted', 'unsortedJury'].includes(slot);
+      member.autoRoom = !member.autoSeat && room !== rootId && member.reservedRoom === rootId;
+    } else {
+      member.reservedRoom = room;
+      member.autoSeat = false;
+      member.autoRoom = false;
+      // Some manual actions (e.g. collect all, change format) move an entire
+      // party without unlinking it. Synchronize every child as well, so a
+      // later deletion cannot revive old automatic room/seat flags.
+      for (const childName of member.children) {
+        const child = state.members[childName];
+        if (!child) continue;
+        child.reservedRoom = room;
+        child.autoSeat = false;
+        child.autoRoom = false;
+      }
+    }
     const list = getList(room, slot);
     list.splice(Math.max(0, Math.min(list.length, index)), 0, name);
     return true;
@@ -152,6 +236,20 @@
   function partyMembers(name) {
     const root = rootOf(name);
     return state.members[root] ? [root, ...state.members[root].children] : [];
+  }
+  // Grouping is a manual placement decision for *every* member of the party.
+  // Members nested under a leader have no independent room/slot until they are
+  // released. Pin their reservation to the leader's current room instead of
+  // retaining automatic-allocation flags from a previous independent seat.
+  function protectManualParty(name) {
+    const root = state.members[rootOf(name)];
+    if (!root) return;
+    for (const person of partyMembers(name)) {
+      const member = state.members[person];
+      member.reservedRoom = root.room;
+      member.autoSeat = false;
+      member.autoRoom = false;
+    }
   }
   const isVoluntaryParty = name => partyMembers(name).every(n => state.members[n]?.volunteeredJury);
   function returnPoolSlot(name) {
@@ -189,6 +287,10 @@
     // Joining another participant in the 'Potential Jury' area is an
     // explicit request to join that jury-candidate group.
     const head = state.members[target];
+    // All children inherit the manual placement, including groups absorbed
+    // from elsewhere. Protecting only the leader left stale autoSeat flags,
+    // which could later move a released child to another team or jury.
+    protectManualParty(target);
     if (head.slot === 'unsortedJury') {
       for (const memberName of partyMembers(target)) {
         state.members[memberName].volunteeredJury = true;
@@ -211,7 +313,13 @@
       child.parent = null;
       child.room = parent.room;
       child.slot = parent.slot;
+      child.reservedRoom = child.room;
+      child.autoSeat = false;
+      child.autoRoom = false;
     }
+    parent.reservedRoom = parent.room;
+    parent.autoSeat = false;
+    parent.autoRoom = false;
     // Insert siblings in their original sequence, *after* their former lead.
     list.splice(position + 1, 0, ...children);
     // If a mixed-preference group is dissolved in an unsorted pool, restore
@@ -240,6 +348,11 @@
         child.parent = null;
         child.room = oldRoom;
         child.slot = oldSlot;
+        // Deleting a manually grouped leader must not turn the surviving
+        // participants back into automatically allocated, movable seats.
+        child.reservedRoom = oldRoom;
+        child.autoSeat = false;
+        child.autoRoom = false;
       }
       list.splice(position + 1, 0, ...releasedChildren);
     }
@@ -735,7 +848,7 @@
       state.notice = overfilled.map(({ room, slot, maximum, current }) => t('overfilled')
         .replace('{room}', room.displayName || room.id).replace('{slot}', t(slot))
         .replace('{current}', String(current)).replace('{maximum}', String(maximum))).join(' ');
-      return;
+      return { invalid: true, accepted: false };
     }
     const globalRate = globalExperienceRate(roomList);
     // Multiple randomized complete plans make it less likely that an early
@@ -780,7 +893,7 @@
       if (joint.plan) best = joint.plan;
       else searchLimitReached = joint.limitReached;
     }
-    if (!best) return;
+    if (!best) { state.notice = t('noComplete'); return { invalid: true, accepted: false }; }
     best = improveJointJuryPriority(best, roomList, globalRate);
     // The allocation is transactional: reject an inconsistent candidate plan
     // before moving even a single participant. Manual occupants stay fixed.
@@ -802,21 +915,26 @@
         total !== (slot === 'jury' ? Math.max(1, room.juryCount) : seatsPerTeam(room)))) validPlan = false;
       if (!validPlan) break;
     }
-    if (!validPlan) { state.notice = t('invalidPlan'); return; }
+    if (!validPlan) { state.notice = t('invalidPlan'); return { invalid: true, accepted: false }; }
     const issues = [];
     for (const room of roomList) {
       const result = best.results.get(room.id);
       if (!result.complete) {
         const name = room.displayName || room.id;
+        const emptySeats = [...teamSlots(room), 'jury']
+          .map(slot => ({ slot, missing: Math.max(0, (slot === 'jury' ? Math.max(1, room.juryCount) : seatsPerTeam(room)) - count(room.id, slot)) }))
+          .filter(item => item.missing)
+          .map(item => `${t(item.slot)} (${item.missing})`).join(', ');
+        const detail = emptySeats ? ' ' + t('missingSlots').replace('{slots}', emptySeats) : '';
         const reason = searchLimitReached ? t('searchLimit')
           : result.available < result.needed
             ? t('needsParticipants').replace('{n}', String(result.needed - result.available))
-            : t('groupsPrevent');
-        issues.push(t('partial').replace('{room}', name).replace('{reason}', reason));
+            : t('groupsPrevent') + ' ' + t('retryHint');
+        issues.push(t('partial').replace('{room}', name).replace('{reason}', reason + detail));
         continue;
       }
       for (const { item, slot } of result.picks) {
-        moveMember(item.name, room.id, roomOnly && slot !== 'jury' ? 'unsorted' : slot);
+        moveMember(item.name, room.id, roomOnly && slot !== 'jury' ? 'unsorted' : slot, Infinity, true);
       }
     }
     const completed = best.completed;
@@ -827,13 +945,13 @@
             const room = completed.reduce((first, current) =>
               count(current.id, 'unsorted') + count(current.id, 'unsortedJury')
                 < count(first.id, 'unsorted') + count(first.id, 'unsortedJury') ? current : first);
-            moveMember(name, room.id, slot);
+            moveMember(name, room.id, slot, Infinity, true);
           }
         }
       } else {
         for (const room of completed.filter(room => room.format === 'opd')) {
           for (const slot of ['unsorted', 'unsortedJury']) {
-            for (const name of listNames(room.id, slot)) moveMember(name, room.id, 'opd_free_speakers');
+            for (const name of listNames(room.id, slot)) moveMember(name, room.id, 'opd_free_speakers', Infinity, true);
           }
         }
         const opdRooms = completed.filter(room => room.format === 'opd');
@@ -845,13 +963,14 @@
             for (const name of listNames(rootId, slot)) {
               const room = opdRooms.reduce((first, current) =>
                 count(current.id, 'opd_free_speakers') < count(first.id, 'opd_free_speakers') ? current : first);
-              moveMember(name, room.id, 'opd_free_speakers');
+              moveMember(name, room.id, 'opd_free_speakers', Infinity, true);
             }
           }
         }
       }
     }
     state.notice = [...(completed.length ? [t('completion').replace('{n}', String(completed.length))] : [t('noComplete')]), ...issues].join(' ');
+    return { accepted: completed.length > 0, completed: completed.length };
   }
 
   // v1.8: Jury priority takes precedence over preserving a group. First plan
@@ -890,17 +1009,200 @@
     }
     return { completed, volunteer, experienced };
   }
-  function distribute(mode, roomId = null) {
+  // This is intentionally separate from the team planner. All remaining root
+  // groups are assigned to rooms, even when no complete debate is possible.
+  // Manual room reservations and already seated teams are never changed.
+  function distributeUnsortedToRooms() {
+    if (!state.rooms.length) return;
+    // Repeated clicks may randomize previous automatic room-only assignments.
+    // Explicit manual room reservations are never added to this pool.
+    for (const room of state.rooms) for (const slot of ['unsortedJury', 'unsorted']) {
+      for (const name of listNames(room.id, slot)) {
+        const m = state.members[name];
+        if (m?.autoRoom && m.reservedRoom === rootId)
+          moveMember(name, rootId, returnPoolSlot(name), Infinity, true);
+      }
+    }
+    const roots = [...listNames(rootId, 'unsortedJury'), ...listNames(rootId, 'unsorted')];
+    let moved = 0;
+    for (const name of shuffle(roots)) {
+      const size = partySize(name);
+      // Capacity-aware load balancing; ties randomized. Entire groups stay together.
+      const choices = shuffle(state.rooms.slice());
+      const roomLoad = room => allSlots(room).reduce((sum, slot) =>
+        sum + count(room.id, slot.id), 0);
+      const capacity = room => teamSlots(room).length * seatsPerTeam(room) + Math.max(1, room.juryCount);
+      choices.sort((a, b) => (roomLoad(a) + size / 2) / capacity(a) -
+        (roomLoad(b) + size / 2) / capacity(b));
+      const destination = choices[0];
+      if (destination && moveMember(name, destination.id, returnPoolSlot(name), Infinity, true)) moved += size;
+    }
+    state.notice = t('roomsDistributed').replace('{n}', String(moved))
+      .replace('{r}', String(state.rooms.length));
+  }
+
+  // Only automatic team/jury positions may be replanned. Previously manually
+  // reserved room locations survive; global candidates return to global pools.
+  function releaseAutomaticSeats(roomId) {
+    for (const room of state.rooms.filter(r => !roomId || r.id === roomId)) {
+      for (const slot of [...teamSlots(room), 'jury', ...(room.format === 'opd' ? ['opd_free_speakers'] : [])]) {
+        for (const name of listNames(room.id, slot)) {
+          const member = state.members[name];
+          if (!member?.autoSeat) continue;
+          const destination = member.reservedRoom &&
+            (member.reservedRoom === rootId || findRoom(member.reservedRoom))
+            ? member.reservedRoom : rootId;
+          moveMember(name, destination, returnPoolSlot(name), Infinity, true);
+        }
+      }
+    }
+    // An automatic room-only allocation is not a lasting room reservation.
+    // It should not obstruct a later global replan.
+    if (!roomId) for (const room of state.rooms) for (const slot of ['unsortedJury', 'unsorted']) {
+      for (const name of listNames(room.id, slot)) {
+        const member = state.members[name];
+        if (member?.autoRoom && member.reservedRoom === rootId)
+          moveMember(name, rootId, returnPoolSlot(name), Infinity, true);
+      }
+    }
+  }
+
+  // The priority check covers EVERY room, including unassigned volunteers
+  // reserved in a different room. Explicitly fixed manual teams/juries are
+  // exempt, but a lower-priority automatic juror is never allowed ahead of an
+  // eligible volunteer (or ahead of an experienced non-volunteer).
+  function globalJuryPrioritySatisfied() {
+    let waitingVol = 0, waitingExp = 0, autoNonVol = 0, autoNovice = 0;
+    for (const [name, member] of Object.entries(state.members)) {
+      if (member.parent) continue;
+      const party = partyMembers(name);
+      const autoSeat = !!member.autoSeat;
+      if (member.slot === 'jury') {
+        if (!autoSeat) continue;
+        for (const person of party) {
+          const juror = state.members[person];
+          if (!juror?.volunteeredJury) {
+            autoNonVol++;
+            if (!juror?.experienced) autoNovice++;
+          }
+        }
+      } else if (['unsorted', 'unsortedJury'].includes(member.slot) || autoSeat) {
+        for (const person of party) {
+          const candidate = state.members[person];
+          if (candidate?.volunteeredJury) waitingVol++;
+          else if (candidate?.experienced) waitingExp++;
+        }
+      }
+    }
+    return !(waitingVol && autoNonVol) &&
+      !(waitingExp && autoNovice && !waitingVol);
+  }
+
+  function currentJuryScoreFromSnapshot(snapshot, rooms) {
+    const after = poolSnapshot();
+    restorePool(snapshot);
+    const countCompleted = currentJuryScore(rooms).completed;
+    restorePool(after);
+    return countCompleted;
+  }
+
+  // Rescue a complete-but-suboptimal distribution by committing the highest
+  // available jury tiers FIRST, rather than accepting a room-wise optimum and
+  // attempting size-preserving swaps after the fact. In particular, two
+  // volunteer singletons can replace a non-volunteer two-person jury group.
+  // All attempts are transactional and use only unseated party roots. Manually
+  // placed speakers, jurors, groups and room reservations are never moved.
+  function findPriorityFirstPlan(before, rooms, mode, scoreIsValid, minimumCompleted) {
+    if (mode !== 'teams' || !rooms.length) return null;
+    const ids = new Set(rooms.map(room => room.id));
+    const cutoff = Date.now() + (rooms.length >= 7 ? 3500 : 1500);
+    const trials = rooms.length >= 7 ? 10 : 12;
+    for (let attempt = 0; attempt < trials; attempt++) {
+      if (Date.now() > cutoff && attempt > 0) break;
+      restorePool(before);
+      // Only on later attempts, allow dissolution of a waiting group containing
+      // volunteers who could not otherwise compete for an individual jury seat.
+      if (attempt >= 5) for (const room of rooms) {
+        for (const source of [rootId, room.id]) for (const slot of ['unsorted', 'unsortedJury']) {
+          for (const name of listNames(source, slot)) {
+            if (partySize(name) > 1 && partyMembers(name).some(person =>
+              state.members[person]?.volunteeredJury)) unlink(name);
+          }
+        }
+      }
+      const remaining = new Map(rooms.map(room =>
+        [room.id, Math.max(0, room.juryCount - count(room.id, 'jury'))]));
+      const roots = new Map();
+      for (const room of rooms) for (const item of candidatesFor(room, true))
+        if (!roots.has(item.name)) roots.set(item.name, item);
+      const items = shuffle([...roots.values()]);
+      const tier = item => item.possibleJury ? 0
+        : item.exp === item.size ? 1 : item.exp ? 2 : 3;
+      // Among equally prioritized candidates use alternating size preference.
+      items.sort((a, b) => tier(a) - tier(b)
+        || (a.sourceRoom === rootId ? 1 : 0) - (b.sourceRoom === rootId ? 1 : 0)
+        || (attempt % 2 ? a.size - b.size : b.size - a.size));
+      const roomFor = item => {
+        const options = shuffle(rooms.filter(room =>
+          ids.has(room.id) && remaining.get(room.id) >= item.size &&
+          (item.sourceRoom === rootId || item.sourceRoom === room.id)));
+        // Fill the most constrained jury capacities first for singleton parties;
+        // for larger parties prefer rooms with enough remaining seats.
+        options.sort((a, b) => item.size === 1
+          ? remaining.get(a.id) - remaining.get(b.id)
+          : remaining.get(b.id) - remaining.get(a.id));
+        return options[0];
+      };
+      for (const item of items) {
+        const room = roomFor(item);
+        if (!room) continue;
+        if (!moveMember(item.name, room.id, 'jury', Infinity, true)) continue;
+        remaining.set(room.id, remaining.get(room.id) - item.size);
+        if (![...remaining.values()].some(n => n > 0)) break;
+      }
+      // A strictly seeded jury is meaningful only when all vacant jury seats
+      // are filled; otherwise leave existing planner/fallback semantics intact.
+      if ([...remaining.values()].some(n => n > 0)) continue;
+      const result = distributeCore(mode);
+      if (!result?.accepted) continue;
+      const score = currentJuryScore(rooms);
+      if (score.completed >= minimumCompleted && scoreIsValid(score)) {
+        const snapshot = poolSnapshot();
+        restorePool(before);
+        return { snapshot, score };
+      }
+    }
+    restorePool(before);
+    return null;
+  }
+
+  function distributeAttempt(mode, roomId = null) {
+    if (mode === 'rooms') { distributeUnsortedToRooms(); return { accepted: true }; }
+    const original = poolSnapshot();
+    // Reject a candidate without leaving behind temporary list entries, dissolved
+    // groups, released automatic seats or a success result from a rolled-back plan.
+    const rejectAttempt = reason => {
+      restorePool(original);
+      state.notice = reason || t('unchangedPlan');
+      return { accepted: false };
+    };
+    releaseAutomaticSeats(roomId);
     const rooms = roomId ? state.rooms.filter(room => room.id === roomId) : state.rooms;
-    if (!rooms.length) return;
+    if (!rooms.length) return rejectAttempt(t('unchangedPlan'));
     // Manual positions are not candidates and are never moved for jury priority.
     const roots = new Set();
     for (const room of rooms) for (const source of [rootId, room.id])
       for (const slot of ['unsortedJury', 'unsorted'])
         for (const name of listNames(source, slot)) if (partySize(name) > 1) roots.add(name);
-    if (!roots.size) { distributeCore(mode, roomId); return; }
+    // Always verify jury priorities, even if every participant is ungrouped.
+    // Otherwise local room assignments can silently put non-volunteers into
+    // juries while volunteers remain available in other rooms.
 
     const available = new Set();
+    // Global priority also applies to single-room operations.
+    for (const room of state.rooms) for (const slot of ['unsortedJury', 'unsorted'])
+      for (const name of listNames(room.id, slot))
+        for (const person of partyMembers(name)) available.add(person);
     for (const root of roots) for (const name of partyMembers(root)) available.add(name);
     // Include single candidates as well: if they fill every available jury seat,
     // there is no reason to dissolve any groups.
@@ -909,29 +1211,91 @@
         for (const name of listNames(source, slot)) for (const person of partyMembers(name)) available.add(person);
     const seats = rooms.reduce((n, room) => n + Math.max(0,
       room.juryCount - count(room.id, 'jury')), 0);
+    // Differentiate a real headcount shortage from groups that cannot be
+    // fitted into the free places. Count each eligible person exactly once,
+    // even when the global pool is a candidate for several rooms.
+    const eligiblePeople = new Set();
+    for (const room of rooms) for (const source of [rootId, room.id])
+      for (const slot of ['unsorted', 'unsortedJury'])
+        for (const root of listNames(source, slot))
+          for (const person of partyMembers(root)) eligiblePeople.add(person);
+    const requiredPeople = rooms.reduce((sum, room) => sum +
+      [...teamSlots(room), 'jury'].reduce((n, slot) => n + Math.max(0,
+        (slot === 'jury' ? Math.max(1, room.juryCount) : seatsPerTeam(room)) - count(room.id, slot)), 0), 0);
+    const headcountShortage = Math.max(0, requiredPeople - eligiblePeople.size);
     const initialScore = currentJuryScore(rooms);
-    const maxVolunteer = initialScore.volunteer + Math.min(seats,
-      [...available].filter(name => state.members[name]?.volunteeredJury).length);
+    const initialJuryOccupancy = rooms.reduce((n, room) => n + count(room.id, 'jury'), 0);
+    const volunteersAvailable = [...available].filter(name => state.members[name]?.volunteeredJury).length;
+    const experiencedAvailable = [...available].filter(name =>
+      !state.members[name]?.volunteeredJury && state.members[name]?.experienced).length;
+    const maxVolunteer = initialScore.volunteer + Math.min(seats, volunteersAvailable);
     const maxExperienced = initialScore.experienced + Math.min(
-      Math.max(0, seats - (maxVolunteer - initialScore.volunteer)),
-      [...available].filter(name => !state.members[name]?.volunteeredJury && state.members[name]?.experienced).length);
+      Math.max(0, seats - (maxVolunteer - initialScore.volunteer)), experiencedAvailable);
+    // A partial allocation should only be rejected when it *actually* seats a
+    // lower-priority new juror ahead of an available higher-priority person.
+    // Unfilled juror seats in other rooms are not themselves a violation.
+    function juryPrioritySatisfied(score) {
+      const occupiedNow = rooms.reduce((n, room) => n + count(room.id, 'jury'), 0);
+      const newlySeated = Math.max(0, occupiedNow - initialJuryOccupancy);
+      const expectedVolunteers = Math.min(newlySeated, volunteersAvailable);
+      const expectedExperienced = Math.min(newlySeated - expectedVolunteers, experiencedAvailable);
+      // A global postcondition additionally catches participants who have
+      // been automatically placed as speakers or are in other room pools.
+      return score.volunteer >= initialScore.volunteer + expectedVolunteers &&
+        score.experienced >= initialScore.experienced + expectedExperienced &&
+        globalJuryPrioritySatisfied();
+    }
     const before = poolSnapshot();
-    distributeCore(mode, roomId);
+    const initialOutcome = distributeCore(mode, roomId);
+    const initialFailureNotice = state.notice;
+    if (initialOutcome?.invalid) return rejectAttempt(initialFailureNotice);
+    let appliedValidPlan = Boolean(initialOutcome?.accepted);
     let best = poolSnapshot();
     let bestScore = currentJuryScore(rooms);
+    // Lack of a complete room is not, by itself, evidence of a jury priority
+    // conflict: groups may simply not fit the remaining team positions.
+    const failureReason = () => {
+      if (headcountShortage)
+        return t('needsParticipants').replace('{n}', String(headcountShortage));
+      if (roots.size) return t('groupFitConflict');
+      return bestScore.completed === 0 && !initialOutcome?.accepted
+        ? initialFailureNotice || t('unchangedPlan') : t('juryPriorityConflict');
+    };
+    // If the fast independent-room solver stranded available volunteers in
+    // speaker slots, try jury-first complete plans before splitting groups or
+    // rejecting an otherwise feasible 100-person debate.
+    if (!roomId && !juryPrioritySatisfied(bestScore)) {
+      const rescue = findPriorityFirstPlan(before, rooms, mode, juryPrioritySatisfied,
+        bestScore.completed);
+      if (rescue) {
+        appliedValidPlan = true;
+        best = rescue.snapshot;
+        bestScore = rescue.score;
+        restorePool(best);
+      } else {
+        restorePool(best);
+      }
+    }
     // Do not disturb intact groups if the strict jury priorities were already met.
-    if (bestScore.volunteer >= maxVolunteer && bestScore.experienced >= maxExperienced) return;
+    if (juryPrioritySatisfied(bestScore)) {
+      if (bestScore.completed < currentJuryScoreFromSnapshot(original, rooms))
+        return rejectAttempt(t('unchangedPlan'));
+      // A solver may have reported zero completed rooms; do not expose such a
+      // discarded plan as accepted, or retain any of its temporary list keys.
+      if (!appliedValidPlan || bestScore.completed === 0)
+        return rejectAttempt(failureReason());
+      return { accepted: true };
+    }
 
     const candidates = [...roots].filter(root => partyMembers(root).some(name =>
       state.members[name]?.volunteeredJury && bestScore.volunteer < maxVolunteer
       || (!state.members[name]?.volunteeredJury && state.members[name]?.experienced
           && bestScore.volunteer >= maxVolunteer && bestScore.experienced < maxExperienced)));
     if (!candidates.length) {
-      if (bestScore.completed === rooms.length) {
-        restorePool(before);
-        state.notice = t('juryPriorityConflict');
-      }
-      return;
+      // Diagnose the failed candidate while it is active. Checking priority
+      // AFTER restoring the original plan previously turned failure into success
+      // and created new empty lists in the restored state.
+      return rejectAttempt(failureReason());
     }
     // Only separate as many groups as seem necessary. If the smallest set
     // cannot yield a valid allocation, try all eligible groups as a fallback.
@@ -958,23 +1322,156 @@
     for (const splitRoots of trials) {
       restorePool(before);
       for (const root of splitRoots) if (state.members[root]?.children.length) unlink(root);
-      distributeCore(mode, roomId);
+      const attemptOutcome = distributeCore(mode, roomId);
+      if (!attemptOutcome?.accepted) continue;
       const score = currentJuryScore(rooms);
       const better = score.completed >= bestScore.completed &&
         (score.volunteer > bestScore.volunteer ||
           (score.volunteer === bestScore.volunteer && score.experienced > bestScore.experienced));
-      if (better) { best = poolSnapshot(); bestScore = score; }
+      if (better) { best = poolSnapshot(); bestScore = score; appliedValidPlan = true; }
       // The upper bound is reached, so additional group splits are unnecessary.
       if (bestScore.volunteer >= maxVolunteer && bestScore.experienced >= maxExperienced) break;
     }
     // Do not silently report a completed debate that placed a lower-priority
     // juror ahead of an available higher-priority candidate. Manual seats are
     // exempt, as agreed; otherwise request an adjustment instead.
-    if (bestScore.completed === rooms.length &&
-        (bestScore.volunteer < maxVolunteer || bestScore.experienced < maxExperienced)) {
-      restorePool(before);
-      state.notice = t('juryPriorityConflict');
-    } else restorePool(best);
+    // The last trial is not necessarily the best candidate. Validate priority
+    // against exactly the snapshot being considered for adoption.
+    restorePool(best);
+    if (!juryPrioritySatisfied(bestScore)) return rejectAttempt(failureReason());
+    if (bestScore.completed < currentJuryScoreFromSnapshot(original, rooms))
+      return rejectAttempt(t('unchangedPlan'));
+    if (!appliedValidPlan || bestScore.completed === 0)
+      return rejectAttempt(failureReason());
+    return { accepted: true };
+  }
+
+  // Preflight counts only MANUALLY reserved party roots. Automatic occupants
+  // may be removed and replanned, so they must not cause a false overfill.
+  function manualCapacityConflict(rooms) {
+    const violations = [];
+    for (const room of rooms) for (const slot of [...teamSlots(room), 'jury']) {
+      const maximum = slot === 'jury' ? Math.max(1, room.juryCount) : seatsPerTeam(room);
+      const current = listNames(room.id, slot)
+        .filter(name => state.members[name] && !state.members[name].autoSeat)
+        .reduce((n, name) => n + partySize(name), 0);
+      if (current > maximum) violations.push(t('overfilled')
+        .replace('{room}', room.displayName || room.id).replace('{slot}', t(slot))
+        .replace('{current}', String(current)).replace('{maximum}', String(maximum)));
+    }
+    return violations.join(' ');
+  }
+
+  // Check invariants before accepting a plan produced in a scratch state.
+  // This also catches future regressions in fallback or group splitting code.
+  function allocationStateValid(original, rooms) {
+    const beforeNames = Object.keys(original.members).sort();
+    if (JSON.stringify(beforeNames) !== JSON.stringify(Object.keys(state.members).sort())) return false;
+    const listed = [];
+    for (const [key, entries] of Object.entries(state.lists)) for (const name of entries) {
+      const member = state.members[name];
+      if (!member || member.parent || listKey(member.room, member.slot) !== key) return false;
+      listed.push(name);
+    }
+    const rootNames = beforeNames.filter(name => !state.members[name].parent);
+    if (listed.length !== rootNames.length || new Set(listed).size !== listed.length ||
+        rootNames.some(name => !listed.includes(name))) return false;
+    for (const name of beforeNames) {
+      const m = state.members[name];
+      if (m.parent && (!state.members[m.parent] ||
+        !state.members[m.parent].children.includes(name))) return false;
+      if (new Set(m.children).size !== m.children.length ||
+        m.children.some(child => !state.members[child] || state.members[child].parent !== name)) return false;
+      const previous = original.members[name];
+      if (!previous.parent && !previous.autoSeat && !['unsorted', 'unsortedJury'].includes(previous.slot)) {
+        // A manually occupied position is an absolute reservation.
+        if (m.parent || m.room !== previous.room || m.slot !== previous.slot || m.autoSeat) return false;
+      }
+    }
+    for (const room of rooms) for (const slot of [...teamSlots(room), 'jury']) {
+      const maximum = slot === 'jury' ? Math.max(1, room.juryCount) : seatsPerTeam(room);
+      if (count(room.id, slot) > maximum) return false;
+    }
+    return true;
+  }
+
+  // Build diagnostics ONLY from the restored, visible plan. A rejected
+  // attempt may temporarily release automatic seats, so its pre-rollback
+  // "open slots" message is not a reliable description of the displayed UI.
+  // Reading lists directly also avoids creating empty lists while reporting.
+  function restoredPlanNotice(attemptNotice, rooms) {
+    const currentCount = (room, slot) =>
+      (state.lists[listKey(room.id, slot)] || []).reduce((total, name) => total + partySize(name), 0);
+    const missingByRoom = rooms.map(room => {
+      const missing = [...teamSlots(room), 'jury'].map(slot => {
+        const capacity = slot === 'jury' ? Math.max(1, room.juryCount) : seatsPerTeam(room);
+        return { slot, missing: Math.max(0, capacity - currentCount(room, slot)) };
+      }).filter(entry => entry.missing);
+      return { room, missing };
+    });
+    const missingTotal = missingByRoom.reduce((n, entry) =>
+      n + entry.missing.reduce((sum, slot) => sum + slot.missing, 0), 0);
+    const available = new Set();
+    for (const room of [{ id: rootId }, ...rooms]) {
+      for (const slot of ['unsorted', 'unsortedJury'])
+        for (const name of state.lists[listKey(room.id, slot)] || []) available.add(name);
+      // Automatically assigned optional free speeches can be replanned;
+      // explicitly reserved free speeches must remain protected.
+      if (room.id !== rootId && room.format === 'opd')
+        for (const name of state.lists[listKey(room.id, 'opd_free_speakers')] || [])
+          if (state.members[name]?.autoSeat) available.add(name);
+    }
+    const peopleAvailable = [...available].reduce((n, name) => n + partySize(name), 0);
+    const shortage = Math.max(0, missingTotal - peopleAvailable);
+    const specialReason = [t('juryPriorityConflict'), t('groupFitConflict'), t('invalidPlan')].includes(attemptNotice);
+    let explanation = specialReason ? attemptNotice : t('unchangedPlan');
+    if (!specialReason && shortage)
+      explanation += ' ' + t('needsParticipants').replace('{n}', String(shortage));
+    else if (!specialReason && missingTotal)
+      explanation += ' ' + (attemptNotice.includes(t('searchLimit')) ? t('searchLimit') : t('retryHint'));
+    const details = missingByRoom.filter(entry => entry.missing.length).map(({ room, missing }) => {
+      const slots = missing.map(({ slot, missing: number }) => `${t(slot)} (${number})`).join(', ');
+      return t('partial').replace('{room}', room.displayName || room.id)
+        .replace('{reason}', t('missingSlots').replace('{slots}', slots));
+    });
+    return [explanation, ...details].join(' ');
+  }
+
+  // All candidate calculations take place on copied state. Commit the result
+  // only if the requested operation succeeds, then keep a recoverable baseline
+  // for failed planning attempts, including unexpected validation failures.
+  function distribute(mode, roomId = null) {
+    const original = poolSnapshot();
+    const rooms = roomId ? state.rooms.filter(room => room.id === roomId) : state.rooms;
+    if (mode !== 'rooms') {
+      if (!rooms.length) return;
+      const invalid = manualCapacityConflict(rooms);
+      if (invalid) { restorePool(original); state.notice = invalid; return; }
+    }
+    try {
+      const result = distributeAttempt(mode, roomId);
+      const oldComplete = mode === 'rooms' ? 0 : currentJuryScoreFromSnapshot(original, rooms);
+      const newComplete = mode === 'rooms' ? 0 : currentJuryScore(rooms).completed;
+      const valid = allocationStateValid(original, rooms);
+      const lostCompletedRoom = mode !== 'rooms' && newComplete < oldComplete;
+      // A partial replan that does not complete any additional room should
+      // not scramble existing automatic seats simply because another room
+      // was already fully occupied by manual reservations.
+      const partialWithoutProgress = mode !== 'rooms' && oldComplete > 0 &&
+        newComplete < rooms.length && newComplete <= oldComplete;
+      if (!result?.accepted || !valid || lostCompletedRoom || partialWithoutProgress) {
+        const reason = !valid ? t('invalidPlan')
+          : lostCompletedRoom || partialWithoutProgress ? t('unchangedPlan')
+            : state.notice && !state.notice.startsWith(t('completion'))
+              ? state.notice : t('unchangedPlan');
+        restorePool(original);
+        state.notice = mode === 'rooms' ? reason : restoredPlanNotice(reason, rooms);
+      }
+    } catch (error) {
+      restorePool(original);
+      state.notice = t('invalidPlan');
+      console.error('Distribution rolled back', error);
+    }
   }
 
   function count(room, slot) { return getList(room, slot).reduce((s, name) => s + partySize(name), 0); }
@@ -992,7 +1489,9 @@
     swap: '<path d="M7 3v18m-4-4 4 4 4-4M17 21V3m-4 4 4-4 4 4"/>',
     shuffle: '<path d="M3 7h3c4 0 8 10 12 10h3m-4-4 4 4-4 4M3 17h3c1.9 0 3.7-2.3 5.1-4M14 9c1.3-1.2 2.4-2 4-2h3m-4-4 4 4-4 4"/>',
     school: '<path d="m2 10 10-5 10 5-10 5zM6 12v5c4 3 8 3 12 0v-5M22 10v7"/>',
-    chevron: '<path d="m6 9 6 6 6-6"/>'
+    chevron: '<path d="m6 9 6 6 6-6"/>',
+    edit: '<path d="M12 20h9M17 3l4 4-12 12-4 1 1-4z"/>',
+    juror: '<circle cx="9" cy="7" r="3"/><path d="M3 20v-2c0-4 12-4 12 0v2M17 11l2 2 3-4"/>'
   };
   const svg = (key, size = 20) => `<svg class="mdi-icon" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[key] || ''}</svg>`;
   const iconButton = (action, name, iconName, extras = '', classes = '') => `<button type="button" class="icon-btn ${classes}" data-action="${action}" title="${escAttr(name)}" aria-label="${escAttr(name)}" ${extras}>${svg(iconName)}</button>`;
@@ -1002,6 +1501,7 @@
     if (!m) return '';
     return `<div class="member ${m.experienced ? '' : 'new'} ${state.selected === name ? 'selected' : ''} ${isChild ? 'child-member' : ''}" role="button" tabindex="0" draggable="true" data-member="${escAttr(name)}" title="${escAttr(t('ungroup'))}">
       <span class="member-name">${escapeHtml(name)}</span>
+      <button type="button" data-action="edit-member" data-name="${escAttr(name)}" aria-label="${escAttr(t('edit') + ' ' + name)}" title="${escAttr(t('edit'))}">${svg('edit', 14)}</button>
       <button type="button" data-action="delete-member" data-name="${escAttr(name)}" aria-label="${escAttr(t('remove') + ' ' + name)}" title="${escAttr(t('remove'))}">${svg('close', 15)}</button>
     </div>`;
   }
@@ -1025,7 +1525,8 @@
     const entry = (room.id === rootId && slot.id === 'unsorted') ? `
       <form class="new-member" id="new-member" autocomplete="off">
         <input id="member-name" name="member-name" type="text" placeholder="${t('name')}" maxlength="160" aria-label="${t('name')}" required>
-        <label class="experience-toggle" title="${t('experienced')} / ${t('inexperienced')}"><input type="checkbox" name="experienced" checked><span class="form-icon">${svg('school', 18)}</span></label>
+        <label class="experience-toggle" title="${t('experienced')} / ${t('inexperienced')}"><input type="checkbox" name="experienced" ${state.entryExperienced ? 'checked' : ''} aria-label="${t('experienced')}"><span class="form-icon">${svg('school', 18)}</span></label>
+        <label class="volunteer-toggle" title="${t('juryVolunteer')}"><input type="checkbox" name="volunteer" ${state.entryVolunteer ? 'checked' : ''}><span>${svg('juror', 17)} ${t('jury')}</span></label>
         <button type="submit" class="form-add" title="${t('add')}" aria-label="${t('add')}">${svg('add', 20)}</button>
       </form>` : '';
     const qty = count(room.id, slot.id);
@@ -1057,12 +1558,26 @@
       </div>
     </aside>`;
   }
+  function roomOverview(room) {
+    const required = teamSlots(room).length * seatsPerTeam(room) + Math.max(1, room.juryCount);
+    const occupied = [...teamSlots(room), 'jury'].reduce((n, slot) => n + count(room.id, slot), 0);
+    const inRoom = allSlots(room).reduce((n, slot) => n + count(room.id, slot.id), 0);
+    const heading = room.displayName || `${t('room')} ${room.id}`;
+    return `<div class="board-overview"><strong>${escapeHtml(heading)}</strong><span>${room.format === 'opd' ? 'OPD' : 'BPS'} · ${t('roomPeople')}: ${inRoom}</span><span class="seat-progress ${occupied === required ? 'complete' : ''}">${t('mandatorySeats')}: ${occupied}/${required}</span></div>`;
+  }
   function render() {
     document.documentElement.lang = state.lang;
     document.documentElement.dataset.theme = state.dark ? 'dark' : 'light';
     document.title = t('title');
     const root = document.getElementById('app');
     if (!root) return;
+    const scrollPositions = new Map();
+    for (const row of root.querySelectorAll('.room-row')) {
+      const roomId = row.querySelector('.slot[data-room]')?.dataset.room;
+      const board = row.querySelector('.board');
+      if (roomId && board) scrollPositions.set(roomId,
+        { left: board.scrollLeft, top: board.scrollTop });
+    }
     const rootRoom = { id: rootId };
     root.innerHTML = `<header class="app-bar"><div class="nav">
         <h1>${t('title')}</h1>
@@ -1071,18 +1586,27 @@
             <select id="language" aria-label="${t('lang')}"><option value="de" ${state.lang === 'de' ? 'selected' : ''}>Deutsch</option><option value="en" ${state.lang === 'en' ? 'selected' : ''}>English</option></select>
           </div>
           <button type="button" class="top-icon" data-action="theme" title="${t('theme')}" aria-label="${t('theme')}">${svg('theme', 24)}</button>
-          <a class="top-icon" href="https://github.com/HalbFettKaese/debate-planner" target="_blank" rel="noopener noreferrer" title="GitHub" aria-label="GitHub">${svg('github', 24)}</a>
+          <a class="top-icon" href="https://github.com/K27-07/debattenplaner" target="_blank" rel="noopener noreferrer" title="GitHub" aria-label="GitHub">${svg('github', 24)}</a>
         </div>
       </div></header>
       <main class="content">
         ${state.notice ? `<div class="distribution-notice" role="status">${escapeHtml(state.notice)}</div>` : ''}
         ${state.selected ? `<div class="selected-hint"><strong>${t('selected')}: ${escapeHtml(state.selected)}</strong> <button type="button" data-action="clear-selection">${t('cancel')}</button></div>` : ''}
         <div class="room-row global-row">
-          <div class="board global-board"><div class="slots" style="--columns:2">${visibleSlots(rootRoom).map(slot => slotHtml(rootRoom, slot)).join('')}</div></div>
+          <div class="board global-board"><div class="board-overview global-summary"><strong>${t('present')}: ${Object.keys(state.members).length}</strong><span>${t('available')}: ${count(rootId, 'unsorted') + count(rootId, 'unsortedJury')}</span></div><div class="slots" style="--columns:2">${visibleSlots(rootRoom).map(slot => slotHtml(rootRoom, slot)).join('')}</div></div>
         </div>
         ${state.rooms.map((room, idx) => `<div class="room-row">${settingsHtml(room, idx)}
-          <div class="board"><div class="slots" style="--columns:${visibleSlots(room).length}">${visibleSlots(room).map(slot => slotHtml(room, slot)).join('')}</div></div></div>`).join('')}
+          <div class="board">${roomOverview(room)}<div class="slots" style="--columns:${visibleSlots(room).length}">${visibleSlots(room).map(slot => slotHtml(room, slot)).join('')}</div></div></div>`).join('')}
       </main>`;
+    for (const row of root.querySelectorAll('.room-row')) {
+      const roomId = row.querySelector('.slot[data-room]')?.dataset.room;
+      const position = scrollPositions.get(roomId);
+      const board = row.querySelector('.board');
+      if (position && board) {
+        board.scrollLeft = position.left;
+        board.scrollTop = position.top;
+      }
+    }
   }
 
   const app = document.getElementById('app');
@@ -1122,24 +1646,76 @@
       }
     }
   }
+  function openMemberEditor(name) {
+    const m = state.members[name];
+    if (!m) return;
+    app.querySelector('#edit-member-dialog')?.remove();
+    const dialog = document.createElement('dialog');
+    dialog.id = 'edit-member-dialog';
+    dialog.className = 'edit-dialog';
+    dialog.dataset.original = name;
+    dialog.innerHTML = `<form id="edit-member-form" autocomplete="off">
+      <h2>${t('editParticipant')}</h2>
+      <label class="edit-line"><span>${t('name')}</span><input id="edit-name" type="text" maxlength="160" required value="${escAttr(name)}"></label>
+      <label class="edit-option"><input id="edit-experienced" type="checkbox" ${m.experienced ? 'checked' : ''}><span>${t('experienced')}</span></label>
+      <label class="edit-option"><input id="edit-volunteer" type="checkbox" ${m.volunteeredJury ? 'checked' : ''}><span>${t('juryVolunteer')}</span></label>
+      <p class="edit-error" role="alert" aria-live="assertive"></p>
+      <div class="edit-actions"><button type="button" data-action="cancel-edit">${t('cancelEdit')}</button><button type="submit" class="primary-edit">${t('save')}</button></div>
+    </form>`;
+    dialog.addEventListener('close', () => dialog.remove(), { once: true });
+    app.append(dialog);
+    dialog.showModal();
+    dialog.querySelector('#edit-name')?.focus();
+  }
   addRoom();
   render();
 
   // Event delegation keeps drag source mounted throughout dragging.
   app.addEventListener('submit', event => {
+    if (event.target?.id === 'edit-member-form') {
+      event.preventDefault();
+      const dialog = event.target.closest('dialog');
+      const result = updateMember(dialog.dataset.original,
+        dialog.querySelector('#edit-name').value,
+        dialog.querySelector('#edit-experienced').checked,
+        dialog.querySelector('#edit-volunteer').checked);
+      if (result) {
+        dialog.querySelector('.edit-error').textContent =
+          result === 'duplicate' ? t('duplicateName') : t('invalid');
+        return;
+      }
+      dialog.close();
+      render();
+      return;
+    }
     if (event.target?.id !== 'new-member') return;
     event.preventDefault();
     const form = event.target;
     const name = form.elements['member-name'].value;
     const experienced = form.elements.experienced.checked;
-    if (addMember(name, experienced)) render();
+    const volunteered = form.elements.volunteer.checked;
+    if (addMember(name, experienced, volunteered)) {
+      // Each new check-in starts from safe defaults. The choices above apply
+      // only to the person just entered, never implicitly to the next person.
+      state.entryExperienced = true;
+      state.entryVolunteer = false;
+      state.notice = '';
+      render();
+      // Repeated names can be entered without having to click the input again.
+      app.querySelector('#member-name')?.focus();
+    }
   });
   app.addEventListener('change', event => {
     if (event.target?.id === 'language') {
       state.lang = event.target.value === 'en' ? 'en' : 'de'; render(); return;
     }
     if (event.target?.name === 'experienced') {
+      state.entryExperienced = event.target.checked;
       event.target.closest('.new-member')?.classList.toggle('new', !event.target.checked);
+      return;
+    }
+    if (event.target?.name === 'volunteer') {
+      state.entryVolunteer = event.target.checked;
       return;
     }
     const el = event.target.closest('[data-room-setting]');
@@ -1159,7 +1735,7 @@
     const room = findRoom(el.dataset.room);
     if (room) {
       room.displayName = el.value;
-      const heading = el.closest('.room-row')?.querySelector('.board-title');
+      const heading = el.closest('.room-row')?.querySelector('.board-overview strong');
       if (heading) heading.textContent = room.displayName || t('room') + ' ' + room.id;
     }
   });
@@ -1167,6 +1743,17 @@
     const action = event.target.closest('button[data-action]');
     if (action) {
       const { room, slot, name } = action.dataset;
+      if (action.dataset.action === 'edit-member') { openMemberEditor(name); return; }
+      if (action.dataset.action === 'cancel-edit') {
+        action.closest('dialog')?.close(); return;
+      }
+      // A prior distribution status describes an earlier allocation only.
+      // Manual changes invalidate it; cosmetic actions and distribution
+      // commands preserve their own handling of status messages.
+      if (['add-room', 'add-room-after', 'delete-room', 'move-room',
+        'delete-member', 'retrieve-all', 'retrieve-room', 'place'].includes(action.dataset.action)) {
+        state.notice = '';
+      }
       switch (action.dataset.action) {
         case 'add-room': addRoom(); break;
         case 'add-room-after': addRoom(state.rooms.findIndex(r => r.id === room) + 1); break;
@@ -1192,7 +1779,7 @@
     if (!chip) return;
     const name = chip.dataset.member;
     if (state.selected && state.selected !== name && rootOf(state.selected) !== rootOf(name)) {
-      addChild(name, state.selected);
+      if (addChild(name, state.selected)) state.notice = '';
       state.selected = null;
     } else {
       state.selected = state.selected === name ? null : name;
@@ -1205,6 +1792,7 @@
     const chip = event.target.closest('[data-member]');
     if (!chip) return;
     unlink(chip.dataset.member);
+    state.notice = '';
     state.selected = null;
     render();
   });
@@ -1214,6 +1802,7 @@
     if (event.key === 'Enter' && event.shiftKey) {
       event.preventDefault();
       unlink(chip.dataset.member);
+      state.notice = '';
       state.selected = null;
       render();
       return;
@@ -1263,6 +1852,7 @@
       }
       moveSingleMember(name, slot.dataset.room, slot.dataset.slot, position);
     }
+    state.notice = '';
     state.dragging = null;
     state.selected = null;
     render();
@@ -1273,9 +1863,10 @@
       .forEach(el => el.classList.remove('over', 'merge-target', 'dragging'));
   });
 
-  // v1.4: Touch/Pen dragging. HTML drag events work for mice, but are not
-  // consistently dispatched for touch input (notably on iOS). A brief hold
-  // activates a separate pointer-driven drag; a normal tap stays a tap.
+  // v1.9: A normal finger swipe must scroll even when started on a chip.
+  // Touch Events allow preventDefault ONLY after the long-press activates
+  // dragging; Pointer Events with touch-action:none blocked scrolling.
+  // Pen input still uses Pointer Events. Mouse drag uses HTML Drag-and-drop.
   const touchHoldMs = 350;
   const touchMoveTolerance = 12;
   let touchDrag = null;
@@ -1382,45 +1973,90 @@
       }
       moveSingleMember(drag.name, slot.dataset.room, slot.dataset.slot, position);
     }
+    state.notice = '';
     state.selected = null;
     render();
   }
 
-  app.addEventListener('pointerdown', event => {
-    if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
-    if (event.isPrimary === false || event.button !== 0) return;
-    const chip = event.target.closest('.member[data-member]');
-    if (!chip || event.target.closest('button') || touchDrag) return;
+  function beginHeldDrag(id, chip, x, y) {
+    if (!chip || touchDrag || !state.members[chip.dataset.member]) return;
     const drag = {
-      id: event.pointerId, source: chip, name: chip.dataset.member,
-      x: event.clientX, y: event.clientY,
-      startX: event.clientX, startY: event.clientY,
+      id, source: chip, name: chip.dataset.member,
+      x, y, startX: x, startY: y,
       active: false, moved: false, timer: null, frame: null, ghost: null
     };
     touchDrag = drag;
     drag.timer = window.setTimeout(() => activateTouchDrag(drag), touchHoldMs);
-  });
-  app.addEventListener('pointermove', event => {
+  }
+  function updateHeldDrag(id, x, y) {
     const drag = touchDrag;
-    if (!drag || event.pointerId !== drag.id) return;
-    drag.x = event.clientX;
-    drag.y = event.clientY;
-    const distance = Math.hypot(drag.x - drag.startX, drag.y - drag.startY);
+    if (!drag || drag.id !== id) return false;
+    drag.x = x;
+    drag.y = y;
+    const distance = Math.hypot(x - drag.startX, y - drag.startY);
     if (!drag.active) {
       if (distance > touchMoveTolerance) finishTouchDrag(drag, false);
-      return;
+      return false;
     }
-    event.preventDefault();
     if (distance > touchMoveTolerance) drag.moved = true;
     positionTouchGhost(drag);
     markTouchTarget(drag);
+    return true;
+  }
+
+  // Touch: do not block movement until a hold has become a drag. This makes
+  // normal vertical/horizontal scrolling from the chips possible again.
+  app.addEventListener('touchstart', event => {
+    if (event.touches.length !== 1) {
+      if (touchDrag) finishTouchDrag(touchDrag, false);
+      return;
+    }
+    const chip = event.target.closest('.member[data-member]');
+    if (!chip || event.target.closest('button')) return;
+    const touch = event.changedTouches[0];
+    if (touch) beginHeldDrag(touch.identifier, chip, touch.clientX, touch.clientY);
+  }, { passive: true });
+  app.addEventListener('touchmove', event => {
+    const drag = touchDrag;
+    if (!drag) return;
+    if (event.touches.length !== 1) {
+      finishTouchDrag(drag, false);
+      return;
+    }
+    const touch = [...event.touches].find(t => t.identifier === drag.id);
+    if (!touch) return;
+    if (updateHeldDrag(drag.id, touch.clientX, touch.clientY) && event.cancelable)
+      event.preventDefault();
+  }, { passive: false });
+  app.addEventListener('touchend', event => {
+    const drag = touchDrag;
+    if (drag && [...event.changedTouches].some(t => t.identifier === drag.id))
+      finishTouchDrag(drag, true);
+  });
+  app.addEventListener('touchcancel', event => {
+    const drag = touchDrag;
+    if (drag && [...event.changedTouches].some(t => t.identifier === drag.id))
+      finishTouchDrag(drag, false);
+  });
+
+  // Active stylus: keep the pointer path, without intercepting finger scroll.
+  app.addEventListener('pointerdown', event => {
+    if (event.pointerType !== 'pen' || event.isPrimary === false || event.button !== 0) return;
+    const chip = event.target.closest('.member[data-member]');
+    if (chip && !event.target.closest('button'))
+      beginHeldDrag(`pen-${event.pointerId}`, chip, event.clientX, event.clientY);
+  });
+  app.addEventListener('pointermove', event => {
+    if (event.pointerType !== 'pen') return;
+    if (updateHeldDrag(`pen-${event.pointerId}`, event.clientX, event.clientY))
+      event.preventDefault();
   });
   app.addEventListener('pointerup', event => {
-    if (touchDrag && event.pointerId === touchDrag.id)
+    if (touchDrag?.id === `pen-${event.pointerId}`)
       finishTouchDrag(touchDrag, true);
   });
   app.addEventListener('pointercancel', event => {
-    if (touchDrag && event.pointerId === touchDrag.id)
+    if (touchDrag?.id === `pen-${event.pointerId}`)
       finishTouchDrag(touchDrag, false);
   });
   window.addEventListener('blur', () => {
